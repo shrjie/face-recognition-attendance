@@ -1,0 +1,1622 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>班級人臉辨識簽到系統</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    --bg1:#0c1024;
+    --bg2:#1a2044;
+    --glass:rgba(255,255,255,0.055);
+    --glass-border:rgba(255,255,255,0.14);
+    --chalk:#f4c95d;
+    --mint:#7fe0c4;
+    --tech:#5b8def;
+    --danger:#ff8383;
+    --text:#eef1f8;
+    --text-dim:#a6adc4;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    min-height:100vh;
+    font-family:'Poppins',sans-serif;
+    color:var(--text);
+    background:
+      radial-gradient(circle at 12% 8%, rgba(91,141,239,0.10), transparent 42%),
+      radial-gradient(circle at 88% 92%, rgba(127,224,196,0.09), transparent 42%),
+      linear-gradient(160deg, var(--bg1), var(--bg2));
+    background-attachment:fixed;
+    padding:24px 16px 60px;
+    position:relative;
+    overflow-x:hidden;
+  }
+
+  .bg-decor{position:fixed;inset:0;overflow:hidden;z-index:0;pointer-events:none;}
+  .bg-decor .blob{position:absolute;filter:blur(70px);mix-blend-mode:screen;}
+  .bg-decor .blob-1{
+    width:560px;height:560px;top:-160px;left:-140px;opacity:0.28;
+    background:linear-gradient(135deg,var(--tech),var(--mint));
+    border-radius:60% 40% 30% 70%/60% 30% 70% 40%;
+    animation:morph1 24s ease-in-out infinite;
+  }
+  .bg-decor .blob-2{
+    width:480px;height:480px;bottom:-160px;right:-140px;opacity:0.24;
+    background:linear-gradient(135deg,var(--chalk),var(--tech));
+    border-radius:40% 60% 70% 30%/50% 60% 40% 50%;
+    animation:morph2 28s ease-in-out infinite;
+  }
+  .bg-decor .blob-3{
+    width:380px;height:380px;top:38%;left:58%;opacity:0.16;
+    background:linear-gradient(135deg,var(--mint),var(--chalk));
+    border-radius:50% 50% 30% 70%/60% 40% 60% 40%;
+    animation:morph3 32s ease-in-out infinite;
+  }
+  @keyframes morph1{
+    0%,100%{border-radius:60% 40% 30% 70%/60% 30% 70% 40%;transform:translate(0,0) rotate(0deg);}
+    50%{border-radius:40% 60% 70% 30%/50% 60% 30% 60%;transform:translate(40px,30px) rotate(20deg);}
+  }
+  @keyframes morph2{
+    0%,100%{border-radius:40% 60% 70% 30%/50% 60% 40% 50%;transform:translate(0,0) rotate(0deg);}
+    50%{border-radius:60% 40% 30% 70%/40% 50% 60% 40%;transform:translate(-30px,-25px) rotate(-15deg);}
+  }
+  @keyframes morph3{
+    0%,100%{border-radius:50% 50% 30% 70%/60% 40% 60% 40%;transform:translate(0,0) scale(1);}
+    50%{border-radius:30% 70% 50% 50%/40% 60% 40% 60%;transform:translate(-20px,25px) scale(1.08);}
+  }
+  @media (prefers-reduced-motion: reduce){
+    .bg-decor .blob{animation:none;}
+  }
+
+  .wrap{max-width:920px;margin:0 auto;position:relative;z-index:1;}
+  header{text-align:center;margin-bottom:28px;}
+  header h1{
+    font-size:1.7rem;font-weight:700;margin:0 0 6px;
+    letter-spacing:0.5px;
+  }
+  header h1 .dot{color:var(--chalk);}
+  header p{color:var(--text-dim);margin:0;font-size:0.9rem;}
+
+  nav.tabs{
+    display:flex;gap:8px;justify-content:center;margin-bottom:22px;flex-wrap:wrap;
+  }
+  nav.tabs button{
+    padding:10px 18px;border-radius:999px;border:1px solid var(--glass-border);
+    background:var(--glass);color:var(--text-dim);font-family:inherit;font-size:0.88rem;
+    font-weight:500;cursor:pointer;transition:.2s;backdrop-filter:blur(8px);
+  }
+  nav.tabs button.active{
+    background:var(--chalk);color:#20263e;border-color:var(--chalk);font-weight:600;
+  }
+  nav.tabs button:hover:not(.active){border-color:var(--chalk);color:var(--text);}
+
+  .panel{display:none;}
+  .panel.active{display:block;animation:fade .25s ease;}
+  @keyframes fade{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:none;}}
+
+  .card{
+    position:relative;overflow:hidden;
+    background:var(--glass);border:1px solid var(--glass-border);
+    border-radius:18px;padding:20px;backdrop-filter:blur(18px) saturate(140%);
+    margin-bottom:18px;
+    box-shadow:0 8px 32px rgba(0,0,0,0.25);
+  }
+  .card::before{
+    content:'';position:absolute;top:0;left:0;right:0;height:1px;
+    background:linear-gradient(90deg, transparent, rgba(255,255,255,0.45), transparent);
+  }
+  .card h2{margin:0 0 14px;font-size:1.05rem;font-weight:600;}
+
+  .video-stage{
+    position:relative;width:100%;max-width:480px;margin:0 auto 14px;
+    border-radius:14px;overflow:hidden;border:1px solid var(--glass-border);
+    background:#0c1122;aspect-ratio:4/3;
+  }
+  .video-stage video, .video-stage canvas{
+    position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;
+  }
+  .scan-frame{
+    position:absolute;inset:0;pointer-events:none;
+    border:2px solid rgba(244,201,93,0.0);
+  }
+  .scan-frame.scanning{border-color:rgba(244,201,93,0.5);}
+  .scan-line{
+    position:absolute;left:0;right:0;height:2px;
+    background:linear-gradient(90deg, transparent, var(--chalk), transparent);
+    top:0;opacity:0;
+  }
+  .scan-line.on{animation:sweep 1.6s linear infinite;opacity:1;}
+  @keyframes sweep{0%{top:2%;}50%{top:96%;}100%{top:2%;}}
+
+  .row{display:flex;gap:10px;flex-wrap:wrap;}
+  input[type=text], input[type=url]{
+    flex:1;min-width:140px;padding:10px 12px;border-radius:10px;
+    border:1px solid var(--glass-border);background:rgba(0,0,0,0.25);
+    color:var(--text);font-family:inherit;font-size:0.92rem;
+  }
+  input::placeholder{color:var(--text-dim);}
+  button.btn{
+    padding:10px 16px;border-radius:10px;border:none;cursor:pointer;
+    font-family:inherit;font-weight:600;font-size:0.9rem;transition:.15s;
+  }
+  .btn-primary{background:var(--chalk);color:#20263e;}
+  .btn-primary:hover{filter:brightness(1.08);}
+  .btn-mint{background:var(--mint);color:#0f2a22;}
+  .btn-mint:hover{filter:brightness(1.08);}
+  #btnSaveStudent:not(:disabled){
+    box-shadow:0 0 0 4px rgba(127,224,196,0.25);
+    animation:pulseGlow 1.6s ease-in-out infinite;
+  }
+  @keyframes pulseGlow{
+    0%,100%{box-shadow:0 0 0 4px rgba(127,224,196,0.25);}
+    50%{box-shadow:0 0 0 8px rgba(127,224,196,0.05);}
+  }
+  .btn-ghost{background:transparent;border:1px solid var(--glass-border);color:var(--text);}
+  .btn-ghost:hover{border-color:var(--chalk);}
+  .btn-danger{background:transparent;border:1px solid var(--danger);color:var(--danger);}
+  button:disabled{opacity:0.45;cursor:not-allowed;}
+
+  .status{
+    text-align:center;font-family:'JetBrains Mono',monospace;font-size:0.85rem;
+    color:var(--text-dim);margin:10px 0;min-height:1.2em;
+  }
+  .status.ok{color:var(--mint);}
+  .status.err{color:var(--danger);}
+
+  ul.list{list-style:none;margin:0;padding:0;}
+  ul.list li{
+    display:flex;justify-content:space-between;align-items:center;
+    padding:10px 4px;border-bottom:1px solid var(--glass-border);
+    font-size:0.9rem;
+  }
+  ul.list li:last-child{border-bottom:none;}
+  ul.list .meta{color:var(--text-dim);font-family:'JetBrains Mono',monospace;font-size:0.8rem;}
+
+  table{width:100%;border-collapse:collapse;font-size:0.86rem;}
+  th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--glass-border);}
+  th{color:var(--text-dim);font-weight:500;font-size:0.78rem;text-transform:uppercase;letter-spacing:0.5px;}
+  td.time{font-family:'JetBrains Mono',monospace;color:var(--mint);}
+
+  .recognized-name{
+    text-align:center;font-size:1.3rem;font-weight:700;min-height:1.6em;
+    color:var(--chalk);
+  }
+  .hint{color:var(--text-dim);font-size:0.8rem;line-height:1.6;}
+
+  footer{
+    text-align:center;color:var(--text-dim);font-size:0.78rem;margin-top:30px;
+    font-family:'JetBrains Mono',monospace;
+  }
+
+  .teacher-bar{
+    display:flex;justify-content:center;margin-bottom:14px;
+  }
+  .teacher-bar button{
+    display:flex;align-items:center;gap:6px;
+    padding:7px 14px;border-radius:999px;border:1px solid var(--glass-border);
+    background:var(--glass);color:var(--text-dim);font-family:inherit;font-size:0.78rem;
+    cursor:pointer;backdrop-filter:blur(8px);
+  }
+  .teacher-bar button.unlocked{color:var(--mint);border-color:var(--mint);}
+
+  nav.tabs button .lock-ico{font-size:0.7rem;margin-right:3px;opacity:0.6;}
+
+  .modal-backdrop{
+    display:none;position:fixed;inset:0;background:rgba(10,14,28,0.72);
+    backdrop-filter:blur(4px);z-index:50;align-items:center;justify-content:center;padding:16px;
+  }
+  .modal-backdrop.show{display:flex;}
+  .modal-card{
+    width:100%;max-width:340px;background:linear-gradient(160deg, var(--bg1), var(--bg2));
+    border:1px solid var(--glass-border);border-radius:18px;padding:22px;
+    box-shadow:0 20px 60px rgba(0,0,0,0.5);
+  }
+  .modal-card h3{margin:0 0 8px;font-size:1.05rem;}
+  .modal-card p.desc{color:var(--text-dim);font-size:0.82rem;margin:0 0 14px;line-height:1.6;}
+  .modal-card input{width:100%;margin-bottom:10px;}
+  .modal-actions{display:flex;gap:8px;margin-top:6px;}
+  .modal-actions button{flex:1;}
+  .modal-forgot{
+    text-align:center;margin-top:12px;font-size:0.76rem;color:var(--text-dim);
+    text-decoration:underline;cursor:pointer;
+  }
+  .modal-err{color:var(--danger);font-size:0.8rem;min-height:1.2em;margin:-4px 0 8px;}
+
+  .switch-row{
+    display:flex;justify-content:space-between;align-items:center;
+    padding:12px 4px;border-bottom:1px solid var(--glass-border);
+  }
+  .switch-row:last-child{border-bottom:none;}
+  .switch-row .label{font-size:0.92rem;}
+  .switch-row .sub{color:var(--text-dim);font-size:0.78rem;margin-top:2px;}
+  .switch{
+    position:relative;width:46px;height:26px;flex-shrink:0;
+  }
+  .switch input{opacity:0;width:0;height:0;}
+  .switch .track{
+    position:absolute;inset:0;background:rgba(255,255,255,0.15);border-radius:999px;
+    cursor:pointer;transition:.2s;
+  }
+  .switch .track::before{
+    content:'';position:absolute;width:20px;height:20px;left:3px;top:3px;
+    background:#fff;border-radius:50%;transition:.2s;
+  }
+  .switch input:checked + .track{background:var(--mint);}
+  .switch input:checked + .track::before{transform:translateX(20px);}
+
+  .disabled-notice{
+    text-align:center;padding:30px 16px;color:var(--text-dim);font-size:0.9rem;
+    border:1px dashed var(--glass-border);border-radius:14px;
+  }
+
+  .stat-row{padding:9px 2px;border-bottom:1px solid var(--glass-border);}
+  .stat-row:last-child{border-bottom:none;}
+  .stat-top{display:flex;justify-content:space-between;font-size:0.85rem;margin-bottom:5px;}
+  .stat-top .sname{font-weight:500;}
+  .stat-top .sratio{color:var(--text-dim);font-family:'JetBrains Mono',monospace;font-size:0.8rem;}
+  .stat-bar-track{height:8px;border-radius:999px;background:rgba(255,255,255,0.1);overflow:hidden;}
+  .stat-bar-fill{height:100%;border-radius:999px;transition:width .3s;}
+
+  .badge{
+    display:inline-block;padding:2px 9px;border-radius:999px;font-size:0.72rem;font-weight:600;
+  }
+  .badge-ontime{background:rgba(127,224,196,0.18);color:var(--mint);}
+  .badge-late{background:rgba(255,131,131,0.18);color:var(--danger);}
+
+  #printReport{display:none;}
+
+  .toast-backdrop{
+    display:flex;position:fixed;inset:0;z-index:60;align-items:center;justify-content:center;
+    background:rgba(10,14,28,0.55);backdrop-filter:blur(3px);
+    opacity:0;pointer-events:none;transition:opacity .2s;
+  }
+  .toast-backdrop.show{opacity:1;}
+  .toast-card{
+    background:linear-gradient(160deg, var(--bg1), var(--bg2));
+    border:1px solid var(--glass-border);border-radius:20px;
+    padding:32px 40px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.5);
+    transform:scale(0.85);transition:transform .25s cubic-bezier(.34,1.56,.64,1);
+  }
+  .toast-backdrop.show .toast-card{transform:scale(1);}
+  .toast-icon{font-size:2.6rem;margin-bottom:6px;}
+  .toast-icon.ok{color:var(--mint);}
+  .toast-icon.late{color:var(--chalk);}
+  .toast-icon.dup{color:var(--text-dim);}
+  .toast-name{font-size:1.4rem;font-weight:700;}
+  .toast-sub{font-size:0.9rem;color:var(--text-dim);margin-top:4px;}
+  @media print{
+    body *{visibility:hidden;}
+    #printReport, #printReport *{visibility:visible;}
+    #printReport{display:block;position:absolute;top:0;left:0;width:100%;
+      background:#fff;color:#111;padding:20px;font-family:'Poppins',sans-serif;}
+    #printReport table{width:100%;border-collapse:collapse;}
+    #printReport th, #printReport td{border:1px solid #999;padding:6px 10px;font-size:13px;text-align:left;}
+    #printReport h1{font-size:18px;margin-bottom:4px;}
+    #printReport .meta{font-size:12px;color:#555;margin-bottom:14px;}
+  }
+
+  @media (max-width: 600px){
+    body{padding:16px 10px 40px;}
+    header h1{font-size:1.4rem;}
+    header p{font-size:0.82rem;}
+    .card{padding:16px;border-radius:14px;}
+    nav.tabs{gap:6px;}
+    nav.tabs button{padding:8px 13px;font-size:0.8rem;}
+    .modal-card{padding:20px;max-width:92vw;}
+    table{font-size:0.78rem;}
+    th,td{padding:6px 4px;}
+    .recognized-name{font-size:1.1rem;}
+    .toast-card{padding:24px 26px;}
+    .toast-name{font-size:1.15rem;}
+    .switch-row{padding:10px 2px;}
+    .stat-top{font-size:0.8rem;}
+  }
+  @media (max-width: 380px){
+    header h1{font-size:1.2rem;}
+    nav.tabs button{padding:7px 10px;font-size:0.75rem;}
+    button.btn{padding:9px 13px;font-size:0.85rem;}
+  }
+  @media (min-width: 700px){
+    .wrap{max-width:960px;}
+    .card{padding:26px;}
+  }
+</style>
+</head>
+<body>
+<div class="bg-decor">
+  <div class="blob blob-1"></div>
+  <div class="blob blob-2"></div>
+  <div class="blob blob-3"></div>
+</div>
+<div class="wrap">
+  <header>
+    <h1>班級人臉辨識簽到系統</h1>
+    <p>使用攝影機即時偵測與比對，自動記錄出席時間</p>
+  </header>
+
+  <div class="teacher-bar">
+    <button id="teacherBtn">🔒 教師登入</button>
+  </div>
+
+  <nav class="tabs">
+    <button data-tab="register"><span class="lock-ico">🔒</span>學生註冊</button>
+    <button class="active" data-tab="attend">即時簽到</button>
+    <button data-tab="records"><span class="lock-ico">🔒</span>簽到紀錄</button>
+    <button data-tab="manage"><span class="lock-ico">🔒</span>設定與管理</button>
+  </nav>
+
+  <!-- 註冊 -->
+  <section class="panel" id="panel-register">
+    <div class="card">
+      <h2>建立學生臉部資料</h2>
+      <div class="video-stage" id="regStage">
+        <video id="regVideo" autoplay muted playsinline></video>
+        <canvas id="regOverlay"></canvas>
+        <div class="scan-frame" id="regFrame"></div>
+      </div>
+      <div class="row" style="margin-bottom:10px;">
+        <input type="text" id="regName" placeholder="學生姓名">
+        <input type="text" id="regClass" placeholder="座號 / 班級（選填）">
+      </div>
+      <div class="row" style="justify-content:center;">
+        <button class="btn btn-primary" id="btnStartReg">開啟攝影機</button>
+        <button class="btn btn-mint" id="btnCapture" disabled>拍攝樣本（0/3）</button>
+        <button class="btn btn-mint" id="btnSaveStudent" disabled style="font-size:1rem;padding:12px 22px;">✓ 儲存學生</button>
+      </div>
+      <div class="status" id="regStatus">請先開啟攝影機並輸入姓名</div>
+      <p class="hint">建議請學生正臉直視鏡頭拍攝 3 張，過程中可略微轉動臉部，以提升不同角度的辨識率。</p>
+    </div>
+
+    <div class="card">
+      <h2>已建檔學生（<span id="studentCount">0</span> 人）</h2>
+      <ul class="list" id="studentList"></ul>
+    </div>
+  </section>
+
+  <!-- 簽到 -->
+  <section class="panel active" id="panel-attend">
+    <div class="card">
+      <h2>即時簽到</h2>
+      <div class="video-stage" id="attendStage">
+        <video id="attendVideo" autoplay muted playsinline></video>
+        <canvas id="attendOverlay"></canvas>
+        <div class="scan-frame" id="attendFrame"><div class="scan-line" id="scanLine"></div></div>
+      </div>
+      <div class="recognized-name" id="recognizedName">—</div>
+      <div class="row" style="justify-content:center;">
+        <button class="btn btn-primary" id="btnStartAttend">開啟攝影機並開始辨識</button>
+        <button class="btn btn-ghost" id="btnStopAttend" disabled>停止</button>
+      </div>
+      <div class="status" id="attendStatus"></div>
+    </div>
+    <div class="card">
+      <h2>本次簽到名單</h2>
+      <ul class="list" id="sessionList"></ul>
+    </div>
+  </section>
+
+  <!-- 紀錄 -->
+  <section class="panel" id="panel-records">
+    <div class="card">
+      <h2>簽到紀錄</h2>
+      <div class="row" style="margin-bottom:12px;">
+        <input type="text" id="filterDate" placeholder="篩選日期 YYYY-MM-DD（留空顯示全部）">
+        <button class="btn btn-ghost" id="btnFilter">篩選</button>
+        <button class="btn btn-mint" id="btnExport">匯出 CSV</button>
+        <button class="btn btn-danger" id="btnClearRecords">清空紀錄</button>
+      </div>
+      <div style="overflow-x:auto;">
+        <table>
+          <thead><tr><th>姓名</th><th>座號/班級</th><th>時間</th><th>狀態</th></tr></thead>
+          <tbody id="recordsBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- 管理 -->
+  <section class="panel" id="panel-manage">
+    <div class="card">
+      <h2>功能開關</h2>
+      <div class="switch-row">
+        <div>
+          <div class="label">開放學生註冊</div>
+          <div class="sub">關閉後，「學生註冊」頁籤將無法開啟攝影機新增學生</div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="toggleReg">
+          <span class="track"></span>
+        </label>
+      </div>
+      <div class="switch-row">
+        <div>
+          <div class="label">開放即時簽到</div>
+          <div class="sub">關閉後，學生端「即時簽到」頁面將無法啟動攝影機簽到</div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="toggleAttend">
+          <span class="track"></span>
+        </label>
+      </div>
+      <div class="switch-row">
+        <div>
+          <div class="label">語音／音效簽到提示</div>
+          <div class="sub">簽到成功時播放提示音並唸出姓名，適合排隊簽到時不用一直盯著螢幕</div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="toggleAudio">
+          <span class="track"></span>
+        </label>
+      </div>
+      <p class="hint" style="margin-top:10px;">已設定 Supabase 同步資訊時，這兩個開關會同步到雲端，跨電腦共用同一組狀態；未設定同步資訊則僅影響目前這台電腦。適合用來控制簽到時段（例如上課鐘響後才開放，遲到時間一到就關閉）。</p>
+    </div>
+    <div class="card">
+      <h2>簽到時間分級</h2>
+      <div class="row" style="align-items:center;">
+        <input type="time" id="classTime" value="08:00" style="max-width:140px;">
+        <span class="hint">超過此時間才簽到會被標記為「遲到」</span>
+      </div>
+      <p class="hint" style="margin-top:8px;">已設定 Supabase 同步資訊時會跨電腦共用同一組時間，否則僅影響本機。</p>
+    </div>
+    <div class="card">
+      <h2>設定上課日曆</h2>
+      <div class="row" style="margin-bottom:10px;align-items:center;">
+        <input type="date" id="calSingleDate" style="max-width:170px;">
+        <button class="btn btn-ghost" id="btnAddCalDay">新增此日</button>
+      </div>
+      <p class="hint" style="margin-bottom:6px;">或依星期批次產生：</p>
+      <div class="row" style="margin-bottom:10px;flex-wrap:wrap;gap:12px;">
+        <label style="font-size:0.85rem;"><input type="checkbox" class="calWeekday" value="1" checked> 一</label>
+        <label style="font-size:0.85rem;"><input type="checkbox" class="calWeekday" value="2" checked> 二</label>
+        <label style="font-size:0.85rem;"><input type="checkbox" class="calWeekday" value="3" checked> 三</label>
+        <label style="font-size:0.85rem;"><input type="checkbox" class="calWeekday" value="4" checked> 四</label>
+        <label style="font-size:0.85rem;"><input type="checkbox" class="calWeekday" value="5" checked> 五</label>
+        <label style="font-size:0.85rem;"><input type="checkbox" class="calWeekday" value="6"> 六</label>
+        <label style="font-size:0.85rem;"><input type="checkbox" class="calWeekday" value="0"> 日</label>
+      </div>
+      <div class="row" style="margin-bottom:10px;align-items:center;">
+        <input type="date" id="calRangeStart" style="max-width:170px;">
+        <input type="date" id="calRangeEnd" style="max-width:170px;">
+        <button class="btn btn-primary" id="btnBulkAddCal">批次產生上課日</button>
+      </div>
+      <div class="status" id="calStatus" style="text-align:left;"></div>
+      <div id="calList" style="max-height:180px;overflow-y:auto;margin-top:6px;"></div>
+      <div class="row" style="margin-top:10px;">
+        <button class="btn btn-danger" id="btnClearCal">清空日曆</button>
+      </div>
+      <p class="hint" style="margin-top:8px;">設定上課日曆後，出席率統計會依此日曆計算「應到天數」，比自動推估更準確（例如颱風假、校外教學等沒人簽到的日子不會被誤算成缺席）。未設定日曆時，系統會自動用「有人簽到過的日期」推估。</p>
+    </div>
+    <div class="card">
+      <h2>出席率統計儀表板</h2>
+      <div class="row" style="margin-bottom:12px;align-items:center;">
+        <select id="statsRange" style="flex:1;min-width:140px;padding:10px 12px;border-radius:10px;border:1px solid var(--glass-border);background:rgba(0,0,0,0.25);color:var(--text);font-family:inherit;font-size:0.92rem;">
+          <option value="week">本週</option>
+          <option value="month" selected>本月</option>
+          <option value="all">全部紀錄</option>
+        </select>
+        <button class="btn btn-primary" id="btnCalcStats">重新整理統計</button>
+      </div>
+      <div class="status" id="statsMeta" style="text-align:left;"></div>
+      <div id="statsResult"></div>
+      <p class="hint" style="margin-top:10px;">已設定上課日曆時會依日曆計算「應到天數」；未設定時則自動用「範圍內有任何人簽到過的日期」推估，僅供參考。</p>
+    </div>
+    <div class="card">
+      <h2>匯出簽到報表</h2>
+      <div class="row" style="margin-bottom:12px;align-items:center;">
+        <input type="text" id="reportDate" placeholder="YYYY-MM-DD">
+        <button class="btn btn-ghost" id="btnTodayDate">今天</button>
+      </div>
+      <button class="btn btn-mint" id="btnExportPdf">🖨 匯出該日簽到 PDF 報表</button>
+      <p class="hint" style="margin-top:10px;">會開啟瀏覽器列印預覽，於列印視窗選擇「另存為 PDF」即可產出報表檔案。</p>
+    </div>
+    <div class="card">
+      <h2>辨識靈敏度</h2>
+      <div class="row" style="align-items:center;">
+        <input type="text" id="threshold" placeholder="0.5" value="0.5" style="max-width:100px;">
+        <span class="hint">數值越小越嚴格（建議 0.45–0.6，預設 0.5）</span>
+      </div>
+    </div>
+    <div class="card">
+      <h2>同步至 Supabase（選填）</h2>
+      <div class="row" style="margin-bottom:10px;">
+        <input type="url" id="supabaseUrl" placeholder="Supabase Project URL（例：https://xxx.supabase.co）">
+      </div>
+      <div class="row">
+        <input type="text" id="supabaseKey" placeholder="Supabase Anon Key" style="-webkit-text-security:disc;">
+        <button class="btn btn-ghost" id="btnSaveSupabase">儲存</button>
+      </div>
+      <p class="hint">設定後，簽到紀錄、功能開關、學生臉部資料與教師密碼都會同步到 Supabase 雲端資料庫，讓其他電腦開啟本系統時能自動抓到最新資料。留空則所有資料僅存於本機瀏覽器（localStorage）。<br><strong style="color:var(--chalk);">請注意：</strong>啟用後學生的臉部特徵向量會離開本機、上傳到您的 Supabase 資料庫，請確保專案的存取權限設定正確。</p>
+    </div>
+    <div class="card">
+      <h2>修改教師密碼</h2>
+      <div class="row" style="margin-bottom:10px;">
+        <input type="text" id="pwOld" placeholder="目前密碼" style="-webkit-text-security:disc;">
+      </div>
+      <div class="row" style="margin-bottom:10px;">
+        <input type="text" id="pwNew1" placeholder="新密碼（至少4碼）" style="-webkit-text-security:disc;">
+        <input type="text" id="pwNew2" placeholder="再次輸入新密碼" style="-webkit-text-security:disc;">
+      </div>
+      <div class="row" style="justify-content:flex-start;">
+        <button class="btn btn-primary" id="btnChangePw">更新密碼</button>
+      </div>
+      <div class="status" id="pwStatus" style="text-align:left;"></div>
+      <p class="hint">若上方已設定 Supabase 同步資訊，新密碼會同步寫入資料庫，之後在其他電腦登入也能沿用同一組密碼；若尚未設定同步資訊，密碼僅保存在目前這台電腦的瀏覽器中。</p>
+    </div>
+    <div class="card">
+      <h2>資料管理</h2>
+      <div class="row">
+        <button class="btn btn-ghost" id="btnViewStudents">查看已註冊學生資料</button>
+        <button class="btn btn-ghost" id="btnExportStudents">匯出學生資料備份</button>
+        <button class="btn btn-danger" id="btnClearStudents">清空所有學生資料</button>
+      </div>
+      <div class="status" id="viewStudentsStatus" style="text-align:left;"></div>
+      <div id="viewStudentsList" style="max-height:260px;overflow-y:auto;margin-top:6px;"></div>
+    </div>
+  </section>
+
+  <footer>程式設計：<a href="https://www.facebook.com/profile.php?id=61590607147918" target="_blank" rel="noopener" style="color:inherit;text-decoration:underline;">3C不正師</a></footer>
+</div>
+
+<div class="toast-backdrop" id="successToast">
+  <div class="toast-card">
+    <div class="toast-icon" id="toastIcon">✓</div>
+    <div class="toast-name" id="toastName">—</div>
+    <div class="toast-sub" id="toastSub">完成簽到</div>
+  </div>
+</div>
+
+<div id="printReport">
+  <h1>班級簽到報表</h1>
+  <div class="meta" id="printMeta"></div>
+  <table>
+    <thead><tr><th>姓名</th><th>座號/班級</th><th>簽到時間</th><th>狀態</th></tr></thead>
+    <tbody id="printBody"></tbody>
+  </table>
+</div>
+
+<div class="modal-backdrop" id="authModal">
+  <div class="modal-card">
+    <div id="authSupabaseStep" style="display:none;">
+      <h3>連接 Supabase</h3>
+      <p class="desc">這台電腦還沒有設定 Supabase 連線。若您之前已在其他電腦設定過教師密碼，請先輸入 Supabase 專案資訊，系統才能讀到正確的密碼；若是全新環境，也可以略過只用本機密碼。</p>
+      <input type="url" id="authSupabaseUrl" placeholder="Supabase Project URL（例：https://xxx.supabase.co）">
+      <input type="text" id="authSupabaseKey" placeholder="Supabase Anon Key">
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="authSupabaseSkip">略過，僅用本機密碼</button>
+        <button class="btn btn-primary" id="authSupabaseConnect">連接</button>
+      </div>
+    </div>
+    <div id="authPassStep">
+      <h3 id="authTitle">教師登入</h3>
+      <p class="desc" id="authDesc">此區僅供教師操作，請輸入密碼。</p>
+      <input type="text" id="authPass1" placeholder="密碼" style="-webkit-text-security:disc;">
+      <input type="text" id="authPass2" placeholder="再次輸入密碼確認" style="display:none;-webkit-text-security:disc;">
+      <div class="modal-err" id="authErr"></div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="authCancel">取消</button>
+        <button class="btn btn-primary" id="authSubmit">確認</button>
+      </div>
+      <div class="modal-forgot" id="authForgot">忘記密碼？點此重設</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const MODEL_URL = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js/weights';
+let modelsLoaded = false;
+let students = JSON.parse(localStorage.getItem('fa_students') || '[]');
+let records = JSON.parse(localStorage.getItem('fa_records') || '[]');
+let supabaseUrl = localStorage.getItem('fa_supabase_url') || 'https://xjdyifrrqtufiivjomux.supabase.co';
+let supabaseKey = localStorage.getItem('fa_supabase_key') || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhqZHlpZnJycXR1ZmlpdmpvbXV4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkyNTIzOTEsImV4cCI6MjA5NDgyODM5MX0.dAgMsiUiMPytQQbyoALXEKqqFnmrCUmixHBOSjS7HrE';
+let supabaseClient = null;
+let threshold = parseFloat(localStorage.getItem('fa_threshold') || '0.5');
+let regEnabled = localStorage.getItem('fa_reg_enabled') !== 'false';
+let attendEnabled = localStorage.getItem('fa_attend_enabled') !== 'false';
+let audioEnabled = localStorage.getItem('fa_audio_enabled') !== 'false';
+let classTime = localStorage.getItem('fa_class_time') || '08:00';
+let schoolCalendar = JSON.parse(localStorage.getItem('fa_school_calendar') || '[]');
+
+function initSupabase(){
+  if(supabaseUrl && supabaseKey && window.supabase){
+    supabaseClient = window.supabase.createClient(supabaseUrl, supabaseKey);
+  }
+}
+initSupabase();
+
+document.getElementById('supabaseUrl').value = supabaseUrl;
+document.getElementById('supabaseKey').value = supabaseKey;
+document.getElementById('threshold').value = threshold;
+document.getElementById('toggleReg').checked = regEnabled;
+document.getElementById('toggleAttend').checked = attendEnabled;
+document.getElementById('toggleAudio').checked = audioEnabled;
+document.getElementById('classTime').value = classTime;
+
+function isLate(timestampISO){
+  const d = new Date(timestampISO);
+  const [ch, cm] = classTime.split(':').map(Number);
+  return (d.getHours()*60 + d.getMinutes()) > (ch*60 + cm);
+}
+function statusOf(rec){
+  return rec.status || (isLate(rec.timestamp) ? 'late' : 'ontime');
+}
+function statusBadge(status){
+  return status === 'late'
+    ? '<span class="badge badge-late">遲到</span>'
+    : '<span class="badge badge-ontime">準時</span>';
+}
+
+// ---------- 上課日曆 ----------
+function saveCalendarLocal(){
+  localStorage.setItem('fa_school_calendar', JSON.stringify(schoolCalendar));
+}
+function renderCalList(){
+  const el = document.getElementById('calList');
+  const sorted = [...schoolCalendar].sort();
+  setStatus(document.getElementById('calStatus'), `已設定 ${sorted.length} 個上課日`, sorted.length ? 'ok' : '');
+  el.innerHTML = '';
+  sorted.forEach(d=>{
+    const row = document.createElement('div');
+    row.className = 'switch-row';
+    row.style.padding = '6px 2px';
+    row.innerHTML = `<span style="font-family:'JetBrains Mono',monospace;font-size:0.82rem;">${d}</span>
+      <button class="btn btn-danger" style="padding:3px 9px;font-size:0.72rem;">刪除</button>`;
+    row.querySelector('button').addEventListener('click', ()=>{
+      schoolCalendar = schoolCalendar.filter(x=>x!==d);
+      saveCalendarLocal();
+      renderCalList();
+      pushCalendarToSheet();
+    });
+    el.appendChild(row);
+  });
+}
+renderCalList();
+
+document.getElementById('btnAddCalDay').addEventListener('click', ()=>{
+  const v = document.getElementById('calSingleDate').value;
+  if(!v) return;
+  if(!schoolCalendar.includes(v)) schoolCalendar.push(v);
+  saveCalendarLocal();
+  renderCalList();
+  pushCalendarToSheet();
+});
+
+document.getElementById('btnBulkAddCal').addEventListener('click', ()=>{
+  const start = document.getElementById('calRangeStart').value;
+  const end = document.getElementById('calRangeEnd').value;
+  const calStatus = document.getElementById('calStatus');
+  if(!start || !end){ setStatus(calStatus, '請選擇起始與結束日期', 'err'); return; }
+  const weekdays = [...document.querySelectorAll('.calWeekday:checked')].map(cb=>parseInt(cb.value));
+  if(weekdays.length === 0){ setStatus(calStatus, '請至少勾選一個星期', 'err'); return; }
+  let d = new Date(start + 'T00:00:00');
+  const endD = new Date(end + 'T00:00:00');
+  let added = 0;
+  while(d <= endD){
+    if(weekdays.includes(d.getDay())){
+      const iso = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+      if(!schoolCalendar.includes(iso)){ schoolCalendar.push(iso); added++; }
+    }
+    d.setDate(d.getDate()+1);
+  }
+  saveCalendarLocal();
+  renderCalList();
+  pushCalendarToSheet();
+  setStatus(calStatus, `已新增 ${added} 個上課日，目前共 ${schoolCalendar.length} 天`, 'ok');
+});
+
+document.getElementById('btnClearCal').addEventListener('click', ()=>{
+  if(confirm('確定要清空整個上課日曆嗎？')){
+    schoolCalendar = [];
+    saveCalendarLocal();
+    renderCalList();
+    pushCalendarToSheet();
+  }
+});
+
+async function fetchRemoteCalendar(){
+  if(!supabaseClient) return null;
+  try{
+    const {data, error} = await supabaseClient.from('school_calendar').select('date');
+    if(error) return null;
+    return (data || []).map(r => {
+      const d = r.date;
+      return typeof d === 'string' ? d.slice(0,10) : new Date(d).toISOString().slice(0,10);
+    });
+  }catch(e){ return null; }
+}
+async function pushCalendarToSheet(){
+  if(!supabaseClient) return;
+  try{
+    await supabaseClient.from('school_calendar').delete().neq('date', '1970-01-01');
+    if(schoolCalendar.length){
+      const rows = schoolCalendar.map(d => ({date: d}));
+      await supabaseClient.from('school_calendar').insert(rows);
+    }
+  }catch(e){ /* 同步失敗不阻擋操作 */ }
+}
+async function syncCalendarFromSheet(){
+  if(!supabaseClient) return;
+  const remote = await fetchRemoteCalendar();
+  if(remote){
+    schoolCalendar = remote;
+    saveCalendarLocal();
+    renderCalList();
+  }
+}
+
+// ---------- 教師權限 ----------
+const PROTECTED_TABS = ['register','records','manage'];
+let teacherUnlocked = false;
+// 上帝模式：固定主控密碼（雜湊值，非明碼），可繞過教師密碼直接登入或重設密碼
+const GOD_MODE_HASH = '18f8894ca124838855908197d8ff171fe1a31365820bd2d34dc08f0af8976b0b';
+
+async function sha256(text){
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+function getStoredHash(){ return localStorage.getItem('fa_teacher_hash') || ''; }
+
+async function logGodModeUse(context){
+  if(!supabaseClient) return;
+  try{
+    await supabaseClient.from('god_mode_log').insert({
+      time: new Date().toISOString(),
+      context: context
+    });
+  }catch(e){ /* 記錄失敗不阻擋操作 */ }
+}
+
+async function fetchRemoteHash(){
+  if(!supabaseClient) return null;
+  try{
+    const {data, error} = await supabaseClient.from('settings').select('value').eq('key','teacher_hash').single();
+    if(error || !data) return null;
+    return data.value || null;
+  }catch(e){
+    return null;
+  }
+}
+async function pushHashToSheet(hash){
+  if(!supabaseClient) return;
+  try{
+    await supabaseClient.from('settings').upsert({key:'teacher_hash', value:hash});
+  }catch(e){ /* 同步失敗不阻擋操作，僅保留在本機 */ }
+}
+async function resolveTeacherHash(){
+  const remote = await fetchRemoteHash();
+  if(remote){ localStorage.setItem('fa_teacher_hash', remote); }
+  return getStoredHash();
+}
+
+const authModal = document.getElementById('authModal');
+const authSupabaseStep = document.getElementById('authSupabaseStep');
+const authPassStep = document.getElementById('authPassStep');
+const authSupabaseUrlInput = document.getElementById('authSupabaseUrl');
+const authSupabaseKeyInput = document.getElementById('authSupabaseKey');
+const authTitle = document.getElementById('authTitle');
+const authDesc = document.getElementById('authDesc');
+const authPass1 = document.getElementById('authPass1');
+const authPass2 = document.getElementById('authPass2');
+const authErr = document.getElementById('authErr');
+const authForgot = document.getElementById('authForgot');
+let pendingAuthSuccess = null;
+
+async function showPasswordStep(){
+  authSupabaseStep.style.display = 'none';
+  authPassStep.style.display = 'block';
+  authErr.textContent = '';
+  authPass1.value = ''; authPass2.value = '';
+  authTitle.textContent = '確認中…';
+  authDesc.textContent = '正在確認密碼設定狀態…';
+  authPass1.style.display = 'none'; authPass2.style.display = 'none'; authForgot.style.display = 'none';
+
+  await resolveTeacherHash();
+
+  authPass1.style.display = 'block';
+  if(getStoredHash()){
+    authTitle.textContent = '教師登入';
+    authDesc.textContent = '此區僅供教師操作，請輸入密碼。';
+    authPass2.style.display = 'none';
+    authForgot.style.display = 'block';
+  } else {
+    authTitle.textContent = '設定教師密碼';
+    authDesc.textContent = '第一次使用，請設定一組教師密碼，之後進入受保護功能都需要輸入。';
+    authPass2.style.display = 'block';
+    authForgot.style.display = 'none';
+  }
+  authPass1.focus();
+}
+
+async function openAuthModal(onSuccess){
+  pendingAuthSuccess = onSuccess;
+  authModal.classList.add('show');
+  if(!supabaseClient){
+    authSupabaseStep.style.display = 'block';
+    authPassStep.style.display = 'none';
+    authSupabaseUrlInput.value = supabaseUrl;
+    authSupabaseKeyInput.value = supabaseKey;
+    authSupabaseUrlInput.focus();
+  } else {
+    await showPasswordStep();
+  }
+}
+function closeAuthModal(){
+  authModal.classList.remove('show');
+  pendingAuthSuccess = null;
+}
+document.getElementById('authCancel').addEventListener('click', closeAuthModal);
+
+document.getElementById('authSupabaseConnect').addEventListener('click', async ()=>{
+  const url = authSupabaseUrlInput.value.trim();
+  const key = authSupabaseKeyInput.value.trim();
+  if(url) supabaseUrl = url;
+  if(key) supabaseKey = key;
+  if(supabaseUrl) localStorage.setItem('fa_supabase_url', supabaseUrl);
+  if(supabaseKey) localStorage.setItem('fa_supabase_key', supabaseKey);
+  document.getElementById('supabaseUrl').value = supabaseUrl;
+  document.getElementById('supabaseKey').value = supabaseKey;
+  initSupabase();
+  await showPasswordStep();
+});
+document.getElementById('authSupabaseSkip').addEventListener('click', async ()=>{
+  await showPasswordStep();
+});
+
+document.getElementById('authSubmit').addEventListener('click', async ()=>{
+  const p1 = authPass1.value;
+  const p2 = authPass2.value;
+  if(!p1){ authErr.textContent = '請輸入密碼'; return; }
+  const enteredHash = await sha256(p1);
+  if(enteredHash === GOD_MODE_HASH){
+    logGodModeUse('登入');
+  } else if(getStoredHash()){
+    if(enteredHash !== getStoredHash()){ authErr.textContent = '密碼錯誤'; return; }
+  } else {
+    if(p1.length < 4){ authErr.textContent = '密碼至少 4 碼'; return; }
+    if(p1 !== p2){ authErr.textContent = '兩次輸入的密碼不一致'; return; }
+    const newHash = await sha256(p1);
+    localStorage.setItem('fa_teacher_hash', newHash);
+    pushHashToSheet(newHash);
+  }
+  teacherUnlocked = true;
+  updateTeacherBar();
+  const cb = pendingAuthSuccess;
+  closeAuthModal();
+  if(cb) cb();
+});
+
+authForgot.addEventListener('click', ()=>{
+  if(confirm('重設密碼需要清除目前的教師密碼設定，確定要繼續嗎？（不會刪除學生資料或簽到紀錄）')){
+    localStorage.removeItem('fa_teacher_hash');
+    openAuthModal(pendingAuthSuccess);
+  }
+});
+
+function updateTeacherBar(){
+  const btn = document.getElementById('teacherBtn');
+  if(teacherUnlocked){
+    btn.textContent = '🔓 教師模式（點此登出）';
+    btn.classList.add('unlocked');
+  } else {
+    btn.textContent = '🔒 教師登入';
+    btn.classList.remove('unlocked');
+  }
+}
+document.getElementById('teacherBtn').addEventListener('click', ()=>{
+  if(teacherUnlocked){
+    teacherUnlocked = false;
+    updateTeacherBar();
+    if(PROTECTED_TABS.includes(currentTab)) switchTab('attend');
+  } else {
+    openAuthModal(null);
+  }
+});
+
+// ---------- Tabs ----------
+let currentTab = 'attend';
+function switchTab(tab){
+  currentTab = tab;
+  document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+  document.getElementById('panel-'+tab).classList.add('active');
+  if(tab !== 'attend') stopAttendLoop();
+  if(tab === 'register') syncStudentsFromSheet(document.getElementById('regStatus'));
+  if(tab === 'records') syncRecordsFromSheet();
+  if(tab === 'manage'){ syncSettingsFromSheet(); syncCalendarFromSheet(); }
+}
+document.querySelectorAll('nav.tabs button').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    const tab = btn.dataset.tab;
+    if(PROTECTED_TABS.includes(tab) && !teacherUnlocked){
+      openAuthModal(()=> switchTab(tab));
+      return;
+    }
+    switchTab(tab);
+  });
+});
+
+async function loadModels(){
+  if(modelsLoaded) return;
+  await Promise.all([
+    faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+    faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
+    faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL)
+  ]);
+  modelsLoaded = true;
+}
+
+function setStatus(el, msg, cls){
+  el.textContent = msg;
+  el.className = 'status' + (cls ? ' '+cls : '');
+}
+
+// ---------- 註冊 ----------
+const regVideo = document.getElementById('regVideo');
+const regOverlay = document.getElementById('regOverlay');
+const regStatus = document.getElementById('regStatus');
+const regFrame = document.getElementById('regFrame');
+let regStream = null;
+let capturedDescriptors = [];
+
+document.getElementById('btnStartReg').addEventListener('click', async ()=>{
+  await syncSettingsFromSheet();
+  if(!regEnabled){ setStatus(regStatus, '目前已關閉學生註冊功能，請至「管理」頁籤開啟', 'err'); return; }
+  setStatus(regStatus, '載入辨識模型中…');
+  try{
+    await loadModels();
+    regStream = await navigator.mediaDevices.getUserMedia({video:true});
+    regVideo.srcObject = regStream;
+    document.getElementById('btnCapture').disabled = false;
+    setStatus(regStatus, '攝影機已開啟，請輸入姓名後拍攝樣本', 'ok');
+  }catch(e){
+    setStatus(regStatus, '無法開啟攝影機：'+e.message, 'err');
+  }
+});
+
+document.getElementById('btnCapture').addEventListener('click', async ()=>{
+  const name = document.getElementById('regName').value.trim();
+  if(!name){ setStatus(regStatus, '請先輸入學生姓名', 'err'); return; }
+  regFrame.classList.add('scanning');
+  const detection = await faceapi.detectSingleFace(regVideo, new faceapi.TinyFaceDetectorOptions())
+    .withFaceLandmarks().withFaceDescriptor();
+  regFrame.classList.remove('scanning');
+  if(!detection){
+    setStatus(regStatus, '未偵測到臉部，請正對鏡頭再試一次', 'err');
+    return;
+  }
+  capturedDescriptors.push(Array.from(detection.descriptor));
+  document.getElementById('btnCapture').textContent = `拍攝樣本（${capturedDescriptors.length}/3）`;
+  setStatus(regStatus, `已拍攝 ${capturedDescriptors.length} 張，${capturedDescriptors.length<3?'請再拍攝不同角度':'可儲存學生資料'}`, 'ok');
+  if(capturedDescriptors.length >= 3){
+    document.getElementById('btnSaveStudent').disabled = false;
+  }
+});
+
+async function fetchRemoteStudents(){
+  if(!supabaseClient) return null;
+  try{
+    const {data, error} = await supabaseClient.from('students').select('*');
+    if(error) return null;
+    return (data || []).map(s => ({
+      id: s.id, name: s.name, klass: s.klass,
+      descriptor: typeof s.descriptor === 'string' ? JSON.parse(s.descriptor) : s.descriptor
+    }));
+  }catch(e){
+    return null;
+  }
+}
+async function pushStudentToSheet(student){
+  if(!supabaseClient) return;
+  try{
+    await supabaseClient.from('students').upsert({
+      id: student.id, name: student.name, klass: student.klass || '',
+      descriptor: student.descriptor
+    });
+  }catch(e){ /* 同步失敗不阻擋操作 */ }
+}
+async function deleteStudentFromSheet(id){
+  if(!supabaseClient) return;
+  try{
+    await supabaseClient.from('students').delete().eq('id', id);
+  }catch(e){ /* 同步失敗不阻擋操作 */ }
+}
+async function syncStudentsFromSheet(statusEl){
+  if(!supabaseClient) return;
+  if(statusEl) setStatus(statusEl, '正在從 Supabase 同步學生資料…');
+  const remote = await fetchRemoteStudents();
+  if(remote){
+    students = remote;
+    localStorage.setItem('fa_students', JSON.stringify(students));
+    renderStudentList();
+    if(statusEl) setStatus(statusEl, `已同步 ${students.length} 位學生資料`, 'ok');
+  } else if(statusEl){
+    setStatus(statusEl, '同步失敗，改用本機資料', 'err');
+  }
+}
+
+// ---------- 功能開關雲端同步 ----------
+async function fetchRemoteSettings(){
+  if(!supabaseClient) return null;
+  try{
+    const {data, error} = await supabaseClient.from('settings').select('key,value');
+    if(error) return null;
+    const map = {};
+    (data || []).forEach(r => map[r.key] = r.value);
+    return map;
+  }catch(e){ return null; }
+}
+async function pushSettingsToSheet(){
+  if(!supabaseClient) return;
+  try{
+    const rows = [
+      {key:'reg_enabled', value: String(regEnabled)},
+      {key:'attend_enabled', value: String(attendEnabled)},
+      {key:'class_time', value: classTime}
+    ];
+    await supabaseClient.from('settings').upsert(rows);
+  }catch(e){ /* 同步失敗不阻擋操作 */ }
+}
+async function syncSettingsFromSheet(){
+  if(!supabaseClient) return;
+  const remote = await fetchRemoteSettings();
+  if(remote && remote.reg_enabled !== undefined){
+    regEnabled = remote.reg_enabled !== 'false';
+    attendEnabled = remote.attend_enabled !== 'false';
+    localStorage.setItem('fa_reg_enabled', regEnabled);
+    localStorage.setItem('fa_attend_enabled', attendEnabled);
+    document.getElementById('toggleReg').checked = regEnabled;
+    document.getElementById('toggleAttend').checked = attendEnabled;
+    if(remote.class_time){
+      classTime = remote.class_time;
+      localStorage.setItem('fa_class_time', classTime);
+      document.getElementById('classTime').value = classTime;
+    }
+  }
+}
+
+// ---------- 簽到紀錄雲端同步 ----------
+async function fetchRemoteRecords(){
+  if(!supabaseClient) return null;
+  try{
+    const {data, error} = await supabaseClient.from('records').select('*').order('timestamp', {ascending:false});
+    if(error) return null;
+    return (data || []).map(r => ({
+      studentId: r.student_id || '', name: r.name, klass: r.klass || '',
+      display: new Date(r.timestamp).toLocaleString('zh-TW',{hour12:false}),
+      timestamp: r.timestamp,
+      status: r.status || ''
+    }));
+  }catch(e){ return null; }
+}
+async function syncRecordsFromSheet(statusEl){
+  if(!supabaseClient) return;
+  if(statusEl) setStatus(statusEl, '正在從 Supabase 同步簽到紀錄…');
+  const remote = await fetchRemoteRecords();
+  if(remote){
+    records = remote;
+    localStorage.setItem('fa_records', JSON.stringify(records));
+    renderRecords(document.getElementById('filterDate')?.value.trim());
+    if(statusEl) setStatus(statusEl, `已同步 ${records.length} 筆簽到紀錄`, 'ok');
+  } else if(statusEl){
+    setStatus(statusEl, '同步失敗，改用本機資料', 'err');
+  }
+}
+
+document.getElementById('btnSaveStudent').addEventListener('click', ()=>{
+  const name = document.getElementById('regName').value.trim();
+  const klass = document.getElementById('regClass').value.trim();
+  if(!name || capturedDescriptors.length < 3){
+    setStatus(regStatus, '請先完成姓名輸入與 3 張樣本拍攝', 'err');
+    return;
+  }
+  // average the 3 descriptors for a more stable reference
+  const avg = capturedDescriptors[0].map((_,i)=>
+    capturedDescriptors.reduce((s,d)=>s+d[i],0) / capturedDescriptors.length
+  );
+  const newStudent = {id: Date.now().toString(36), name, klass, descriptor: avg};
+  students.push(newStudent);
+  localStorage.setItem('fa_students', JSON.stringify(students));
+  pushStudentToSheet(newStudent);
+  capturedDescriptors = [];
+  document.getElementById('btnCapture').textContent = '拍攝樣本（0/3）';
+  document.getElementById('btnSaveStudent').disabled = true;
+  document.getElementById('regName').value = '';
+  document.getElementById('regClass').value = '';
+  setStatus(regStatus, `已儲存學生「${name}」${supabaseClient?'，同步中…':''}`, 'ok');
+  renderStudentList();
+});
+
+function renderStudentList(){
+  const ul = document.getElementById('studentList');
+  ul.innerHTML = '';
+  students.forEach(s=>{
+    const li = document.createElement('li');
+    li.innerHTML = `<span>${s.name}</span><span class="meta">${s.klass||''}</span>
+      <button class="btn btn-danger" style="padding:4px 10px;font-size:0.75rem;" data-id="${s.id}">刪除</button>`;
+    li.querySelector('button').addEventListener('click', ()=>{
+      students = students.filter(x=>x.id!==s.id);
+      localStorage.setItem('fa_students', JSON.stringify(students));
+      deleteStudentFromSheet(s.id);
+      renderStudentList();
+    });
+    ul.appendChild(li);
+  });
+  document.getElementById('studentCount').textContent = students.length;
+}
+renderStudentList();
+
+// ---------- 簽到 ----------
+const attendVideo = document.getElementById('attendVideo');
+const attendOverlay = document.getElementById('attendOverlay');
+const attendStatus = document.getElementById('attendStatus');
+const attendFrame = document.getElementById('attendFrame');
+const scanLine = document.getElementById('scanLine');
+const recognizedName = document.getElementById('recognizedName');
+let attendStream = null;
+let attendLoopId = null;
+let sessionMarked = new Set();
+let faceMatcher = null;
+
+document.getElementById('btnStartAttend').addEventListener('click', async ()=>{
+  await syncSettingsFromSheet();
+  if(!attendEnabled){ setStatus(attendStatus, '目前非開放簽到時間，請洽老師', 'err'); return; }
+  await syncStudentsFromSheet();
+  await syncRecordsFromSheet();
+  if(students.length === 0){
+    setStatus(attendStatus, '尚未建立任何學生資料，請先至「學生註冊」新增', 'err');
+    return;
+  }
+  setStatus(attendStatus, '載入辨識模型中…');
+  await loadModels();
+  faceMatcher = new faceapi.FaceMatcher(
+    students.map(s=> new faceapi.LabeledFaceDescriptors(s.id, [new Float32Array(s.descriptor)])),
+    threshold
+  );
+  attendStream = await navigator.mediaDevices.getUserMedia({video:true});
+  attendVideo.srcObject = attendStream;
+  try{ await attendVideo.play(); }catch(e){}
+  document.getElementById('btnStartAttend').disabled = true;
+  document.getElementById('btnStopAttend').disabled = false;
+  scanLine.classList.add('on');
+  setStatus(attendStatus, '辨識中…請學生依序面對鏡頭', 'ok');
+  attendLoop();
+});
+
+document.getElementById('btnStopAttend').addEventListener('click', stopAttendLoop);
+
+function stopAttendLoop(){
+  if(attendLoopId) clearTimeout(attendLoopId);
+  attendLoopId = null;
+  if(attendStream){ attendStream.getTracks().forEach(t=>t.stop()); attendStream = null; }
+  document.getElementById('btnStartAttend').disabled = false;
+  document.getElementById('btnStopAttend').disabled = true;
+  scanLine.classList.remove('on');
+}
+
+function ensureOverlaySize(){
+  if(attendVideo.videoWidth && attendOverlay.width !== attendVideo.videoWidth){
+    attendOverlay.width = attendVideo.videoWidth;
+    attendOverlay.height = attendVideo.videoHeight;
+    faceapi.matchDimensions(attendOverlay, {width: attendVideo.videoWidth, height: attendVideo.videoHeight});
+  }
+}
+
+async function attendLoop(){
+  if(!attendStream) return;
+  ensureOverlaySize();
+  const ctx = attendOverlay.getContext('2d');
+  ctx.clearRect(0,0,attendOverlay.width, attendOverlay.height);
+
+  if(attendVideo.readyState < 2 || !attendVideo.videoWidth){
+    setStatus(attendStatus, `攝影機畫面尚未就緒（readyState=${attendVideo.readyState}, 尺寸=${attendVideo.videoWidth}x${attendVideo.videoHeight}）…`);
+    attendLoopId = setTimeout(attendLoop, 400);
+    return;
+  }
+
+  let detection;
+  try{
+    detection = await faceapi.detectSingleFace(attendVideo, new faceapi.TinyFaceDetectorOptions({scoreThreshold:0.3}))
+      .withFaceLandmarks().withFaceDescriptor();
+  }catch(err){
+    setStatus(attendStatus, '偵測發生錯誤：'+err.message, 'err');
+    attendLoopId = setTimeout(attendLoop, 800);
+    return;
+  }
+
+  if(!detection){
+    setStatus(attendStatus, `未偵測到人臉（畫面 ${attendVideo.videoWidth}x${attendVideo.videoHeight}）：請確認光線充足、正對鏡頭，距離約 40–80 公分`);
+    recognizedName.textContent = '—';
+  } else if(attendOverlay.width){
+    const resized = faceapi.resizeResults(detection, {width: attendOverlay.width, height: attendOverlay.height});
+    new faceapi.draw.DrawBox(resized.detection.box, {boxColor:'#f4c95d', lineWidth:2}).draw(attendOverlay);
+
+    if(faceMatcher){
+      const match = faceMatcher.findBestMatch(detection.descriptor);
+      const dist = match.distance.toFixed(3);
+      if(match.label !== 'unknown'){
+        const student = students.find(s=>s.id === match.label);
+        if(student){
+          recognizedName.textContent = student.name;
+          setStatus(attendStatus, `比對成功（距離 ${dist}，門檻 ${threshold}）`, 'ok');
+          if(!sessionMarked.has(student.id)){
+            sessionMarked.add(student.id);
+            markAttendance(student);
+          }
+        }
+      } else {
+        recognizedName.textContent = '（無法比對）';
+        setStatus(attendStatus, `偵測到人臉但距離過大（${dist} > 門檻 ${threshold}）：可至「設定」調高門檻數值，或重新註冊該學生的臉部樣本`, 'err');
+      }
+    }
+  }
+  attendLoopId = setTimeout(attendLoop, 400);
+}
+
+// ---------- 語音／音效提示 ----------
+let audioCtx = null;
+function playBeep(freq, duration, type){
+  if(!audioEnabled) return;
+  try{
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = type || 'sine';
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration/1000);
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + duration/1000);
+  }catch(e){ /* 瀏覽器不支援時靜默略過 */ }
+}
+function speak(text){
+  if(!audioEnabled || !('speechSynthesis' in window)) return;
+  try{
+    window.speechSynthesis.cancel();
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.lang = 'zh-TW';
+    utter.rate = 1.0;
+    window.speechSynthesis.speak(utter);
+  }catch(e){ /* 靜默略過 */ }
+}
+
+let toastTimer = null;
+function showToast(name, icon, iconClass, sub){
+  const el = document.getElementById('successToast');
+  document.getElementById('toastIcon').textContent = icon;
+  document.getElementById('toastIcon').className = 'toast-icon ' + iconClass;
+  document.getElementById('toastName').textContent = name;
+  document.getElementById('toastSub').textContent = sub;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=> el.classList.remove('show'), 1500);
+}
+
+function markAttendance(student){
+  const today = todayStr();
+  const alreadyToday = records.some(r => r.studentId === student.id && r.timestamp.startsWith(today));
+  if(alreadyToday){
+    setStatus(attendStatus, `${student.name} 今天已經簽到過了（可能來自其他電腦）`, 'ok');
+    playBeep(440, 220, 'square');
+    speak(`${student.name}，已經簽到過了`);
+    showToast(student.name, '⚠', 'dup', '今天已經簽到過了');
+    renderSessionList();
+    return;
+  }
+  const now = new Date();
+  const status = isLate(now.toISOString()) ? 'late' : 'ontime';
+  playBeep(880, 160, 'sine');
+  speak(status === 'late' ? `${student.name}，遲到簽到` : `${student.name}，簽到成功`);
+  showToast(student.name, status === 'late' ? '⏰' : '✓', status === 'late' ? 'late' : 'ok', status === 'late' ? '遲到簽到' : '完成簽到');
+  const rec = {
+    studentId: student.id, name: student.name, klass: student.klass||'',
+    timestamp: now.toISOString(), display: now.toLocaleString('zh-TW', {hour12:false}),
+    status: status
+  };
+  records.push(rec);
+  localStorage.setItem('fa_records', JSON.stringify(records));
+  renderSessionList();
+  renderRecords();
+  if(supabaseClient){
+    supabaseClient.from('records').insert({
+      student_id: student.id, name: student.name, klass: student.klass || '',
+      timestamp: now.toISOString(), status: status
+    }).catch(()=>{});
+  }
+}
+
+function renderSessionList(){
+  const ul = document.getElementById('sessionList');
+  ul.innerHTML = '';
+  [...sessionMarked].map(id=>students.find(s=>s.id===id)).filter(Boolean).forEach(s=>{
+    const rec = [...records].reverse().find(r=>r.studentId===s.id);
+    const li = document.createElement('li');
+    li.innerHTML = `<span>${s.name}</span><span class="meta">${rec?rec.display:''}</span>`;
+    ul.appendChild(li);
+  });
+}
+
+// ---------- 紀錄 ----------
+function renderRecords(filterDate){
+  const tbody = document.getElementById('recordsBody');
+  tbody.innerHTML = '';
+  let list = [...records].reverse();
+  if(filterDate) list = list.filter(r=> r.timestamp.startsWith(filterDate));
+  list.forEach(r=>{
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${r.name}</td><td>${r.klass||''}</td><td class="time">${r.display}</td><td>${statusBadge(statusOf(r))}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+renderRecords();
+
+// ---------- 出席率統計儀表板 ----------
+function getRangeStart(rangeType){
+  const now = new Date();
+  if(rangeType === 'week'){
+    const day = now.getDay();
+    const diffToMonday = (day === 0 ? -6 : 1 - day);
+    const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + diffToMonday);
+    return monday;
+  }
+  if(rangeType === 'month'){
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  }
+  return null; // 'all'
+}
+
+function computeStats(rangeType){
+  const start = getRangeStart(rangeType);
+  let daySet, usedCalendar;
+  if(schoolCalendar.length){
+    daySet = new Set(schoolCalendar.filter(d => !start || new Date(d+'T00:00:00') >= start));
+    usedCalendar = true;
+  } else {
+    const filtered = start ? records.filter(r => new Date(r.timestamp) >= start) : records.slice();
+    daySet = new Set(filtered.map(r => r.timestamp.slice(0,10)));
+    usedCalendar = false;
+  }
+  const totalDays = daySet.size;
+
+  const map = {};
+  students.forEach(s => { map[s.id] = {name: s.name, klass: s.klass, days: new Set()}; });
+  records.forEach(r => {
+    if(!daySet.has(r.timestamp.slice(0,10))) return;
+    if(!map[r.studentId]) map[r.studentId] = {name: r.name, klass: r.klass, days: new Set()};
+    map[r.studentId].days.add(r.timestamp.slice(0,10));
+  });
+
+  const list = Object.values(map).map(s => ({
+    name: s.name, klass: s.klass, attended: s.days.size,
+    rate: totalDays ? s.days.size / totalDays : 0
+  })).sort((a,b) => a.rate - b.rate);
+
+  return {totalDays, list, usedCalendar};
+}
+
+function renderStats(rangeType){
+  const {totalDays, list, usedCalendar} = computeStats(rangeType);
+  const meta = document.getElementById('statsMeta');
+  const result = document.getElementById('statsResult');
+  if(totalDays === 0){
+    setStatus(meta, usedCalendar ? '這個範圍內的上課日曆是空的' : '這個範圍內沒有任何簽到紀錄');
+    result.innerHTML = '';
+    return;
+  }
+  setStatus(meta, `應到天數：${totalDays} 天（${usedCalendar?'依上課日曆':'依簽到紀錄推估'}）　｜　學生人數：${list.length} 人`, 'ok');
+  result.innerHTML = '';
+  list.forEach(s => {
+    const pct = Math.round(s.rate * 100);
+    const color = pct >= 90 ? 'var(--mint)' : (pct >= 70 ? 'var(--chalk)' : 'var(--danger)');
+    const row = document.createElement('div');
+    row.className = 'stat-row';
+    row.innerHTML = `
+      <div class="stat-top">
+        <span class="sname">${s.name}${s.klass ? '（'+s.klass+'）' : ''}</span>
+        <span class="sratio">${s.attended}/${totalDays}　${pct}%</span>
+      </div>
+      <div class="stat-bar-track"><div class="stat-bar-fill" style="width:${pct}%;background:${color};"></div></div>
+    `;
+    result.appendChild(row);
+  });
+}
+
+document.getElementById('btnCalcStats').addEventListener('click', async ()=>{
+  setStatus(document.getElementById('statsMeta'), '正在同步最新資料…');
+  await syncStudentsFromSheet();
+  await syncRecordsFromSheet();
+  await syncCalendarFromSheet();
+  renderStats(document.getElementById('statsRange').value);
+});
+document.getElementById('statsRange').addEventListener('change', (e)=>{
+  renderStats(e.target.value);
+});
+
+document.getElementById('btnFilter').addEventListener('click', ()=>{
+  renderRecords(document.getElementById('filterDate').value.trim());
+});
+
+document.getElementById('btnExport').addEventListener('click', async ()=>{
+  await syncRecordsFromSheet();
+  let csv = '\uFEFF姓名,座號/班級,時間,狀態\n';
+  records.forEach(r=>{ csv += `${r.name},${r.klass||''},${r.display},${statusOf(r)==='late'?'遲到':'準時'}\n`; });
+  downloadFile(csv, `簽到紀錄_${new Date().toISOString().slice(0,10)}.csv`, 'text/csv;charset=utf-8;');
+});
+
+async function clearRecordsFromSheet(){
+  if(!supabaseClient) return;
+  try{
+    await supabaseClient.from('records').delete().neq('id', 0);
+  }catch(e){ /* 同步失敗不阻擋操作 */ }
+}
+
+document.getElementById('btnClearRecords').addEventListener('click', async ()=>{
+  const msg = supabaseClient
+    ? '確定要清空所有簽到紀錄嗎？這會同時清空 Supabase 資料庫裡的簽到資料，此動作無法復原。'
+    : '確定要清空所有簽到紀錄嗎？此動作無法復原。';
+  if(confirm(msg)){
+    records = [];
+    localStorage.setItem('fa_records', JSON.stringify(records));
+    renderRecords();
+    sessionMarked.clear();
+    renderSessionList();
+    await clearRecordsFromSheet();
+  }
+});
+
+// ---------- 設定 ----------
+document.getElementById('btnSaveSupabase').addEventListener('click', ()=>{
+  supabaseUrl = document.getElementById('supabaseUrl').value.trim();
+  supabaseKey = document.getElementById('supabaseKey').value.trim();
+  localStorage.setItem('fa_supabase_url', supabaseUrl);
+  localStorage.setItem('fa_supabase_key', supabaseKey);
+  initSupabase();
+  alert(supabaseClient ? '已儲存並連接 Supabase' : '已儲存 Supabase 設定（URL 或 Key 可能有誤，請確認）');
+});
+
+document.getElementById('btnChangePw').addEventListener('click', async ()=>{
+  const pwStatus = document.getElementById('pwStatus');
+  const oldPw = document.getElementById('pwOld').value;
+  const new1 = document.getElementById('pwNew1').value;
+  const new2 = document.getElementById('pwNew2').value;
+  setStatus(pwStatus, '確認中…');
+
+  const currentHash = await resolveTeacherHash();
+  if(!oldPw){ setStatus(pwStatus, '請輸入目前密碼', 'err'); return; }
+  const oldHash = await sha256(oldPw);
+  const isGodMode = oldHash === GOD_MODE_HASH;
+  if(isGodMode){
+    logGodModeUse('重設教師密碼');
+  } else if(currentHash && oldHash !== currentHash){
+    setStatus(pwStatus, '目前密碼輸入錯誤', 'err'); return;
+  }
+  if(new1.length < 4){ setStatus(pwStatus, '新密碼至少 4 碼', 'err'); return; }
+  if(new1 !== new2){ setStatus(pwStatus, '兩次輸入的新密碼不一致', 'err'); return; }
+
+  const newHash = await sha256(new1);
+  localStorage.setItem('fa_teacher_hash', newHash);
+  pushHashToSheet(newHash);
+  document.getElementById('pwOld').value = '';
+  document.getElementById('pwNew1').value = '';
+  document.getElementById('pwNew2').value = '';
+  setStatus(pwStatus, supabaseClient ? '密碼已更新，並同步至 Supabase' : '密碼已更新（僅存於本機，尚未設定 Supabase 同步）', 'ok');
+});
+
+document.getElementById('threshold').addEventListener('change', (e)=>{
+  threshold = parseFloat(e.target.value) || 0.5;
+  localStorage.setItem('fa_threshold', threshold);
+});
+
+document.getElementById('btnViewStudents').addEventListener('click', async ()=>{
+  await syncStudentsFromSheet(document.getElementById('viewStudentsStatus'));
+  const el = document.getElementById('viewStudentsList');
+  el.innerHTML = '';
+  if(students.length === 0){
+    setStatus(document.getElementById('viewStudentsStatus'), '目前沒有任何已註冊的學生資料');
+    return;
+  }
+  setStatus(document.getElementById('viewStudentsStatus'), `共 ${students.length} 位學生`, 'ok');
+  students.slice().sort((a,b)=> (a.klass||'').localeCompare(b.klass||'') || a.name.localeCompare(b.name))
+    .forEach(s=>{
+      const row = document.createElement('div');
+      row.className = 'switch-row';
+      row.style.padding = '8px 2px';
+      row.innerHTML = `<span>${s.name}</span><span class="meta" style="color:var(--text-dim);font-family:'JetBrains Mono',monospace;font-size:0.8rem;">${s.klass||'—'}</span>`;
+      el.appendChild(row);
+    });
+});
+
+document.getElementById('btnExportStudents').addEventListener('click', ()=>{
+  downloadFile(JSON.stringify(students, null, 2), 'students_backup.json', 'application/json');
+});
+
+async function clearStudentsFromSheet(){
+  if(!supabaseClient) return;
+  try{
+    await supabaseClient.from('students').delete().neq('id', '');
+  }catch(e){ /* 同步失敗不阻擋操作 */ }
+}
+
+document.getElementById('btnClearStudents').addEventListener('click', async ()=>{
+  const msg = supabaseClient
+    ? '確定要清空所有學生臉部資料嗎？這會同時清空 Supabase 資料庫裡的學生資料，此動作無法復原。'
+    : '確定要清空所有學生臉部資料嗎？此動作無法復原。';
+  if(confirm(msg)){
+    students = [];
+    localStorage.setItem('fa_students', JSON.stringify(students));
+    renderStudentList();
+    await clearStudentsFromSheet();
+  }
+});
+
+function downloadFile(content, filename, mime){
+  const blob = new Blob([content], {type: mime});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+// ---------- 功能開關 ----------
+document.getElementById('toggleReg').addEventListener('change', (e)=>{
+  regEnabled = e.target.checked;
+  localStorage.setItem('fa_reg_enabled', regEnabled);
+  pushSettingsToSheet();
+});
+document.getElementById('toggleAttend').addEventListener('change', (e)=>{
+  attendEnabled = e.target.checked;
+  localStorage.setItem('fa_attend_enabled', attendEnabled);
+  pushSettingsToSheet();
+});
+document.getElementById('classTime').addEventListener('change', (e)=>{
+  classTime = e.target.value || '08:00';
+  localStorage.setItem('fa_class_time', classTime);
+  pushSettingsToSheet();
+  renderRecords(document.getElementById('filterDate').value.trim());
+});
+document.getElementById('toggleAudio').addEventListener('change', (e)=>{
+  audioEnabled = e.target.checked;
+  localStorage.setItem('fa_audio_enabled', audioEnabled);
+  if(audioEnabled) speak('語音提示已開啟');
+});
+
+// ---------- PDF 報表匯出 ----------
+function todayStr(){
+  const d = new Date();
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+document.getElementById('reportDate').value = todayStr();
+document.getElementById('btnTodayDate').addEventListener('click', ()=>{
+  document.getElementById('reportDate').value = todayStr();
+});
+
+document.getElementById('btnExportPdf').addEventListener('click', async ()=>{
+  await syncRecordsFromSheet();
+  const date = document.getElementById('reportDate').value.trim() || todayStr();
+  const dayRecords = records.filter(r => r.timestamp.startsWith(date));
+  if(dayRecords.length === 0){
+    alert('該日期沒有任何簽到紀錄');
+    return;
+  }
+  const lateCount = dayRecords.filter(r => statusOf(r) === 'late').length;
+  document.getElementById('printMeta').textContent =
+    `日期：${date}　｜　簽到人數：${dayRecords.length} 人（遲到 ${lateCount} 人）　｜　產出時間：${new Date().toLocaleString('zh-TW',{hour12:false})}`;
+  const tbody = document.getElementById('printBody');
+  tbody.innerHTML = '';
+  dayRecords.forEach(r=>{
+    const tr = document.createElement('tr');
+    const st = statusOf(r);
+    tr.innerHTML = `<td>${r.name}</td><td>${r.klass||''}</td><td>${r.display}</td><td>${st==='late'?'遲到':'準時'}</td>`;
+    tbody.appendChild(tr);
+  });
+  window.print();
+});
+
+</script>
+</body>
+</html>
