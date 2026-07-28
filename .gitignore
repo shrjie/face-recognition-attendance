@@ -5,3 +5,9 @@
 *.swp
 *.swo
 *~
+
+# Netlify
+.netlify/
+
+# Supabase CLI temp
+supabase/.temp/
