@@ -1033,9 +1033,25 @@ async function syncStudentsFromSheet(statusEl){
     localStorage.setItem('fa_students', JSON.stringify(students));
     renderStudentList();
     if(statusEl) setStatus(statusEl, `已同步 ${students.length} 位學生資料`, 'ok');
-  } else if(statusEl){
-    setStatus(statusEl, '同步失敗，改用本機資料', 'err');
+  } else {
+    await syncLocalStudentsToSheet();
+    if(statusEl) setStatus(statusEl, `同步失敗，使用本機資料（已嘗試同步本機學生至雲端）`, 'err');
   }
+}
+
+async function syncLocalStudentsToSheet(){
+  if(!supabaseClient || !students.length) return;
+  try{
+    const {data} = await supabaseClient.from('students').select('id');
+    const remoteIds = new Set((data || []).map(r => r.id));
+    const missing = students.filter(s => !remoteIds.has(s.id));
+    for(const s of missing){
+      await supabaseClient.from('students').upsert({
+        id: s.id, name: s.name, klass: s.klass || '',
+        descriptor: s.descriptor
+      });
+    }
+  }catch(e){ /* 同步失敗不阻擋操作 */ }
 }
 
 // ---------- 功能開關雲端同步 ----------
@@ -1165,6 +1181,7 @@ document.getElementById('btnStartAttend').addEventListener('click', async ()=>{
   await syncSettingsFromSheet();
   if(!attendEnabled){ setStatus(attendStatus, '目前非開放簽到時間，請洽老師', 'err'); return; }
   await syncStudentsFromSheet();
+  await syncLocalStudentsToSheet();
   await syncRecordsFromSheet();
   if(students.length === 0){
     setStatus(attendStatus, '尚未建立任何學生資料，請先至「學生註冊」新增', 'err');
@@ -1322,10 +1339,17 @@ function markAttendance(student){
   renderSessionList();
   renderRecords();
   if(supabaseClient){
-    supabaseClient.from('records').insert({
-      student_id: student.id, name: student.name, klass: student.klass || '',
-      timestamp: now.toISOString(), status: status
-    }).catch(()=>{});
+    supabaseClient.from('students').upsert({
+      id: student.id, name: student.name, klass: student.klass || '',
+      descriptor: student.descriptor
+    }).then(() => {
+      supabaseClient.from('records').insert({
+        student_id: student.id, name: student.name, klass: student.klass || '',
+        timestamp: now.toISOString(), status: status
+      }).then(() => {
+        setStatus(attendStatus, `${student.name} 簽到已同步至雲端`, 'ok');
+      }).catch(() => {});
+    }).catch(() => {});
   }
 }
 

@@ -14,7 +14,7 @@ CREATE TABLE students (
 -- 2. 簽到紀錄
 CREATE TABLE records (
   id BIGSERIAL PRIMARY KEY,
-  student_id TEXT REFERENCES students(id),
+  student_id TEXT,
   name TEXT NOT NULL,
   klass TEXT DEFAULT '',
   timestamp TIMESTAMPTZ NOT NULL,
@@ -47,7 +47,10 @@ CREATE TABLE god_mode_log (
   context TEXT
 );
 
--- 6. Row Level Security（RLS）
+-- 6. 如有舊 FK 限制則釋放（給已建表的專案用）
+ALTER TABLE records DROP CONSTRAINT IF EXISTS records_student_id_fkey;
+
+-- 7. Row Level Security（RLS）
 ALTER TABLE students ENABLE ROW LEVEL SECURITY;
 ALTER TABLE records ENABLE ROW LEVEL SECURITY;
 ALTER TABLE settings ENABLE ROW LEVEL SECURITY;
