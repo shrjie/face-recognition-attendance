@@ -47,23 +47,34 @@ CREATE TABLE god_mode_log (
   context TEXT
 );
 
--- 6. 如有舊 FK 限制則釋放（給已建表的專案用）
+-- 6. 待審查註冊學生
+CREATE TABLE pending_students (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  klass TEXT DEFAULT '',
+  descriptor JSONB NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- 7. 如有舊 FK 限制則釋放（給已建表的專案用）
 ALTER TABLE records DROP CONSTRAINT IF EXISTS records_student_id_fkey;
 
--- 7. Row Level Security（RLS）
+-- 8. Row Level Security（RLS）
 ALTER TABLE students ENABLE ROW LEVEL SECURITY;
 ALTER TABLE records ENABLE ROW LEVEL SECURITY;
 ALTER TABLE settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE school_calendar ENABLE ROW LEVEL SECURITY;
 ALTER TABLE god_mode_log ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pending_students ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "allow_all" ON students FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "allow_all" ON records FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "allow_all" ON settings FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "allow_all" ON school_calendar FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "allow_all" ON god_mode_log FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "allow_all" ON pending_students FOR ALL USING (true) WITH CHECK (true);
 
--- 7. 簽到紀錄索引（加速查詢）
+-- 9. 簽到紀錄索引（加速查詢）
 CREATE INDEX idx_records_timestamp ON records (timestamp);
 CREATE INDEX idx_records_student_id ON records (student_id);
 CREATE INDEX idx_records_status ON records (status);

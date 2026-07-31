@@ -366,14 +366,14 @@
       <div class="row" style="justify-content:center;">
         <button class="btn btn-primary" id="btnStartReg">開啟攝影機</button>
         <button class="btn btn-mint" id="btnCapture" disabled>拍攝樣本（0/3）</button>
-        <button class="btn btn-mint" id="btnSaveStudent" disabled style="font-size:1rem;padding:12px 22px;">✓ 儲存學生</button>
+        <button class="btn btn-mint" id="btnSaveStudent" disabled style="font-size:1rem;padding:12px 22px;">✓ 送出註冊</button>
       </div>
       <div class="status" id="regStatus">請先開啟攝影機並輸入姓名</div>
-      <p class="hint">建議請學生正臉直視鏡頭拍攝 3 張，過程中可略微轉動臉部，以提升不同角度的辨識率。</p>
+      <p class="hint">建議請學生正臉直視鏡頭拍攝 3 張，過程中可略微轉動臉部，以提升不同角度的辨識率。送出後需等待教師審查通過，才能用於簽到辨識。</p>
     </div>
 
     <div class="card">
-      <h2>已建檔學生（<span id="studentCount">0</span> 人）</h2>
+      <h2>已通過學生（<span id="studentCount">0</span> 人）</h2>
       <ul class="list" id="studentList"></ul>
     </div>
   </section>
@@ -426,7 +426,7 @@
       <div class="switch-row">
         <div>
           <div class="label">開放學生註冊</div>
-          <div class="sub">關閉後，「學生註冊」頁籤將無法開啟攝影機新增學生</div>
+          <div class="sub">關閉後，「學生註冊」頁籤將無法開啟攝影機。學生註冊後需教師核准才會進入正式名單</div>
         </div>
         <label class="switch">
           <input type="checkbox" id="toggleReg">
@@ -548,6 +548,15 @@
       <p class="hint">若上方已設定 Supabase 同步資訊，新密碼會同步寫入資料庫，之後在其他電腦登入也能沿用同一組密碼；若尚未設定同步資訊，密碼僅保存在目前這台電腦的瀏覽器中。</p>
     </div>
     <div class="card">
+      <h2>註冊審查（<span id="pendingCount">0</span> 人待審）</h2>
+      <p class="hint" style="margin-bottom:10px;">學生在註冊時段送出的人臉資料會在這裡列出，教師核准後才會進入正式名單，可用於簽到辨識。</p>
+      <div class="row" style="margin-bottom:10px;">
+        <button class="btn btn-primary" id="btnSyncPending">同步最新待審名單</button>
+      </div>
+      <div id="pendingReviewList"></div>
+      <div class="status" id="pendingReviewStatus" style="text-align:left;"></div>
+    </div>
+    <div class="card">
       <h2>資料管理</h2>
       <div class="row">
         <button class="btn btn-ghost" id="btnViewStudents">查看已註冊學生資料</button>
@@ -611,6 +620,7 @@ const MODEL_URL = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js/wei
 let modelsLoaded = false;
 let students = JSON.parse(localStorage.getItem('fa_students') || '[]');
 let records = JSON.parse(localStorage.getItem('fa_records') || '[]');
+let pendingStudents = JSON.parse(localStorage.getItem('fa_pending_students') || '[]');
 let supabaseUrl = localStorage.getItem('fa_supabase_url') || 'https://xjdyifrrqtufiivjomux.supabase.co';
 let supabaseKey = localStorage.getItem('fa_supabase_key') || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhqZHlpZnJycXR1ZmlpdmpvbXV4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkyNTIzOTEsImV4cCI6MjA5NDgyODM5MX0.dAgMsiUiMPytQQbyoALXEKqqFnmrCUmixHBOSjS7HrE';
 let supabaseClient = null;
@@ -926,7 +936,7 @@ function switchTab(tab){
   if(tab !== 'attend') stopAttendLoop();
   if(tab === 'register') syncStudentsFromSheet(document.getElementById('regStatus'));
   if(tab === 'records') syncRecordsFromSheet();
-  if(tab === 'manage'){ syncSettingsFromSheet(); syncCalendarFromSheet(); }
+  if(tab === 'manage'){ syncSettingsFromSheet(); syncCalendarFromSheet(); syncPendingStudentsFromSheet(); }
 }
 document.querySelectorAll('nav.tabs button').forEach(btn=>{
   btn.addEventListener('click', ()=>{
@@ -1054,6 +1064,68 @@ async function syncLocalStudentsToSheet(){
   }catch(e){ /* 同步失敗不阻擋操作 */ }
 }
 
+// ---------- 待審查註冊 ----------
+async function fetchRemotePendingStudents(){
+  if(!supabaseClient) return null;
+  try{
+    const {data, error} = await supabaseClient.from('pending_students').select('*');
+    if(error) return null;
+    return (data || []).map(s => ({
+      id: s.id, name: s.name, klass: s.klass || '',
+      created_at: s.created_at,
+      descriptor: typeof s.descriptor === 'string' ? JSON.parse(s.descriptor) : s.descriptor
+    }));
+  }catch(e){ return null; }
+}
+async function pushPendingStudentToSheet(student){
+  if(!supabaseClient) return;
+  try{
+    await supabaseClient.from('pending_students').upsert({
+      id: student.id, name: student.name, klass: student.klass || '',
+      descriptor: student.descriptor, created_at: student.created_at || new Date().toISOString()
+    });
+  }catch(e){}
+}
+async function deletePendingStudentFromSheet(id){
+  if(!supabaseClient) return;
+  try{
+    await supabaseClient.from('pending_students').delete().eq('id', id);
+  }catch(e){}
+}
+async function syncPendingStudentsFromSheet(){
+  if(!supabaseClient) return;
+  const remote = await fetchRemotePendingStudents();
+  if(remote){
+    pendingStudents = remote;
+    localStorage.setItem('fa_pending_students', JSON.stringify(pendingStudents));
+    renderPendingReview();
+  }
+}
+async function approvePendingStudent(id){
+  const s = pendingStudents.find(p => p.id === id);
+  if(!s) return;
+  students.push({id: s.id, name: s.name, klass: s.klass, descriptor: s.descriptor});
+  localStorage.setItem('fa_students', JSON.stringify(students));
+  pendingStudents = pendingStudents.filter(p => p.id !== id);
+  localStorage.setItem('fa_pending_students', JSON.stringify(pendingStudents));
+  renderStudentList();
+  renderPendingReview();
+  if(!supabaseClient) return;
+  try{
+    await supabaseClient.from('students').upsert({
+      id: s.id, name: s.name, klass: s.klass || '',
+      descriptor: s.descriptor
+    });
+    await supabaseClient.from('pending_students').delete().eq('id', id);
+  }catch(e){}
+}
+async function rejectPendingStudent(id){
+  pendingStudents = pendingStudents.filter(p => p.id !== id);
+  localStorage.setItem('fa_pending_students', JSON.stringify(pendingStudents));
+  renderPendingReview();
+  await deletePendingStudentFromSheet(id);
+}
+
 // ---------- 功能開關雲端同步 ----------
 async function fetchRemoteSettings(){
   if(!supabaseClient) return null;
@@ -1129,21 +1201,19 @@ document.getElementById('btnSaveStudent').addEventListener('click', ()=>{
     setStatus(regStatus, '請先完成姓名輸入與 3 張樣本拍攝', 'err');
     return;
   }
-  // average the 3 descriptors for a more stable reference
   const avg = capturedDescriptors[0].map((_,i)=>
     capturedDescriptors.reduce((s,d)=>s+d[i],0) / capturedDescriptors.length
   );
-  const newStudent = {id: Date.now().toString(36), name, klass, descriptor: avg};
-  students.push(newStudent);
-  localStorage.setItem('fa_students', JSON.stringify(students));
-  pushStudentToSheet(newStudent);
+  const newStudent = {id: Date.now().toString(36), name, klass, descriptor: avg, created_at: new Date().toISOString()};
+  pendingStudents.push(newStudent);
+  localStorage.setItem('fa_pending_students', JSON.stringify(pendingStudents));
+  pushPendingStudentToSheet(newStudent);
   capturedDescriptors = [];
   document.getElementById('btnCapture').textContent = '拍攝樣本（0/3）';
   document.getElementById('btnSaveStudent').disabled = true;
   document.getElementById('regName').value = '';
   document.getElementById('regClass').value = '';
-  setStatus(regStatus, `已儲存學生「${name}」${supabaseClient?'，同步中…':''}`, 'ok');
-  renderStudentList();
+  setStatus(regStatus, `「${name}」已送出註冊，待教師審查通過後即可簽到`, 'ok');
 });
 
 function renderStudentList(){
@@ -1164,6 +1234,42 @@ function renderStudentList(){
   document.getElementById('studentCount').textContent = students.length;
 }
 renderStudentList();
+
+// ---------- 待審查註冊 UI ----------
+function renderPendingReview(){
+  const el = document.getElementById('pendingReviewList');
+  const statusEl = document.getElementById('pendingReviewStatus');
+  document.getElementById('pendingCount').textContent = pendingStudents.length;
+  if(!el) return;
+  el.innerHTML = '';
+  if(!pendingStudents.length){
+    setStatus(statusEl, '目前無待審查的註冊', 'ok');
+    return;
+  }
+  setStatus(statusEl, `共 ${pendingStudents.length} 人待審查`, 'ok');
+  pendingStudents.slice().sort((a,b) => (a.created_at||'').localeCompare(b.created_at||'')).forEach(s => {
+    const row = document.createElement('div');
+    row.className = 'switch-row';
+    row.innerHTML = `
+      <div>
+        <div style="font-weight:500;">${s.name}</div>
+        <div class="meta" style="font-size:0.78rem;">${s.klass||'未填班級'} ｜ ${s.created_at ? new Date(s.created_at).toLocaleString('zh-TW',{hour12:false}) : ''}</div>
+      </div>
+      <div style="display:flex;gap:6px;">
+        <button class="btn btn-mint btnApprove" style="padding:5px 12px;font-size:0.82rem;" data-id="${s.id}">✓ 核准</button>
+        <button class="btn btn-danger btnReject" style="padding:5px 12px;font-size:0.82rem;" data-id="${s.id}">✕ 拒絕</button>
+      </div>`;
+    row.querySelector('.btnApprove').addEventListener('click', ()=> approvePendingStudent(s.id));
+    row.querySelector('.btnReject').addEventListener('click', ()=> rejectPendingStudent(s.id));
+    el.appendChild(row);
+  });
+}
+
+document.getElementById('btnSyncPending')?.addEventListener('click', async ()=>{
+  setStatus(document.getElementById('pendingReviewStatus'), '同步中…');
+  await syncPendingStudentsFromSheet();
+});
+renderPendingReview();
 
 // ---------- 簽到 ----------
 const attendVideo = document.getElementById('attendVideo');
