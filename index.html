@@ -971,6 +971,7 @@ const regStatus = document.getElementById('regStatus');
 const regFrame = document.getElementById('regFrame');
 let regStream = null;
 let capturedDescriptors = [];
+let capturedPhotos = [];
 
 document.getElementById('btnStartReg').addEventListener('click', async ()=>{
   await syncSettingsFromSheet();
@@ -999,6 +1000,10 @@ document.getElementById('btnCapture').addEventListener('click', async ()=>{
     return;
   }
   capturedDescriptors.push(Array.from(detection.descriptor));
+  const c = document.createElement('canvas');
+  c.width = regVideo.videoWidth; c.height = regVideo.videoHeight;
+  c.getContext('2d').drawImage(regVideo, 0, 0);
+  capturedPhotos.push(c.toDataURL('image/jpeg', 0.5));
   document.getElementById('btnCapture').textContent = `拍攝樣本（${capturedDescriptors.length}/3）`;
   setStatus(regStatus, `已拍攝 ${capturedDescriptors.length} 張，${capturedDescriptors.length<3?'請再拍攝不同角度':'可儲存學生資料'}`, 'ok');
   if(capturedDescriptors.length >= 3){
@@ -1072,7 +1077,7 @@ async function fetchRemotePendingStudents(){
     if(error) return null;
     return (data || []).map(s => ({
       id: s.id, name: s.name, klass: s.klass || '',
-      created_at: s.created_at,
+      created_at: s.created_at, photo: s.photo || '',
       descriptor: typeof s.descriptor === 'string' ? JSON.parse(s.descriptor) : s.descriptor
     }));
   }catch(e){ return null; }
@@ -1082,7 +1087,8 @@ async function pushPendingStudentToSheet(student){
   try{
     await supabaseClient.from('pending_students').upsert({
       id: student.id, name: student.name, klass: student.klass || '',
-      descriptor: student.descriptor, created_at: student.created_at || new Date().toISOString()
+      descriptor: student.descriptor, photo: student.photo || '',
+      created_at: student.created_at || new Date().toISOString()
     });
   }catch(e){}
 }
@@ -1204,11 +1210,12 @@ document.getElementById('btnSaveStudent').addEventListener('click', ()=>{
   const avg = capturedDescriptors[0].map((_,i)=>
     capturedDescriptors.reduce((s,d)=>s+d[i],0) / capturedDescriptors.length
   );
-  const newStudent = {id: Date.now().toString(36), name, klass, descriptor: avg, created_at: new Date().toISOString()};
+  const newStudent = {id: Date.now().toString(36), name, klass, descriptor: avg, photo: capturedPhotos[0] || '', created_at: new Date().toISOString()};
   pendingStudents.push(newStudent);
   localStorage.setItem('fa_pending_students', JSON.stringify(pendingStudents));
   pushPendingStudentToSheet(newStudent);
   capturedDescriptors = [];
+  capturedPhotos = [];
   document.getElementById('btnCapture').textContent = '拍攝樣本（0/3）';
   document.getElementById('btnSaveStudent').disabled = true;
   document.getElementById('regName').value = '';
@@ -1250,12 +1257,17 @@ function renderPendingReview(){
   pendingStudents.slice().sort((a,b) => (a.created_at||'').localeCompare(b.created_at||'')).forEach(s => {
     const row = document.createElement('div');
     row.className = 'switch-row';
+    row.style.cssText = 'padding:10px 4px;gap:12px;';
+    const hasPhoto = s.photo && s.photo.startsWith('data:');
     row.innerHTML = `
-      <div>
-        <div style="font-weight:500;">${s.name}</div>
-        <div class="meta" style="font-size:0.78rem;">${s.klass||'未填班級'} ｜ ${s.created_at ? new Date(s.created_at).toLocaleString('zh-TW',{hour12:false}) : ''}</div>
+      <div style="display:flex;align-items:center;gap:12px;flex:1;">
+        ${hasPhoto ? `<img src="${s.photo}" alt="${s.name}" style="width:52px;height:52px;border-radius:10px;object-fit:cover;border:1px solid var(--glass-border);flex-shrink:0;">` : ''}
+        <div>
+          <div style="font-weight:500;">${s.name}</div>
+          <div class="meta" style="font-size:0.78rem;">${s.klass||'未填班級'} ｜ ${s.created_at ? new Date(s.created_at).toLocaleString('zh-TW',{hour12:false}) : ''}</div>
+        </div>
       </div>
-      <div style="display:flex;gap:6px;">
+      <div style="display:flex;gap:6px;flex-shrink:0;">
         <button class="btn btn-mint btnApprove" style="padding:5px 12px;font-size:0.82rem;" data-id="${s.id}">✓ 核准</button>
         <button class="btn btn-danger btnReject" style="padding:5px 12px;font-size:0.82rem;" data-id="${s.id}">✕ 拒絕</button>
       </div>`;

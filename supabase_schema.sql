@@ -53,6 +53,7 @@ CREATE TABLE pending_students (
   name TEXT NOT NULL,
   klass TEXT DEFAULT '',
   descriptor JSONB NOT NULL,
+  photo TEXT DEFAULT '',
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
