@@ -359,7 +359,7 @@
   </div>
 
   <nav class="tabs">
-    <button data-tab="register"><span class="lock-ico">🔒</span>學生註冊</button>
+    <button data-tab="register" id="navRegisterBtn"><span class="lock-ico">🔒</span>學生註冊</button>
     <button class="active" data-tab="attend">即時簽到</button>
     <button data-tab="records"><span class="lock-ico">🔒</span>簽到紀錄</button>
     <button data-tab="manage"><span class="lock-ico">🔒</span>設定與管理</button>
@@ -1028,6 +1028,7 @@ function updateTeacherBar(){
     btn.textContent = '🔒 教師登入';
     btn.classList.remove('unlocked');
   }
+  updateRegButton();
 }
 document.getElementById('teacherBtn').addEventListener('click', ()=>{
   if(teacherUnlocked){
@@ -1054,8 +1055,15 @@ function switchTab(tab){
   updateRegPanel();
 }
 document.querySelectorAll('nav.tabs button').forEach(btn=>{
-  btn.addEventListener('click', ()=>{
+  btn.addEventListener('click', async ()=>{
     const tab = btn.dataset.tab;
+    if(tab === 'register' && !teacherUnlocked){
+      await syncSettingsFromSheet();
+      if(regEnabled){
+        location.href = getRemoteRegUrl();
+        return;
+      }
+    }
     if(PROTECTED_TABS.includes(tab) && !teacherUnlocked){
       openAuthModal(()=> switchTab(tab));
       return;
@@ -1399,6 +1407,20 @@ document.getElementById('btnStopRemote').addEventListener('click', async ()=>{
 function getRemoteRegUrl(){
   return location.origin + location.pathname + '?mode=reg';
 }
+function updateRegButton(){
+  const btn = document.getElementById('navRegisterBtn');
+  if(!btn) return;
+  const lock = btn.querySelector('.lock-ico');
+  if(!lock) return;
+  const remoteOpen = regEnabled && !teacherUnlocked && !remoteStudentMode && !remoteRegMode;
+  if(remoteOpen){
+    lock.textContent = '🌐';
+    btn.title = '教師已開放遠端註冊，點此前往自己的裝置註冊';
+  } else {
+    lock.textContent = '🔒';
+    btn.title = '';
+  }
+}
 function updateRegPanel(){
   if(remoteStudentMode || remoteRegMode) return;
   const panel = document.getElementById('remoteRegPanel');
@@ -1410,6 +1432,7 @@ function updateRegPanel(){
   } else {
     panel.style.display = 'none';
   }
+  updateRegButton();
 }
 function renderRegQr(){
   document.getElementById('remoteRegUrlDisplay').textContent = getRemoteRegUrl();
@@ -1554,6 +1577,7 @@ async function doRemoteSignin(student){
 initRemoteView();
 updateRemotePanel();
 updateRegPanel();
+syncSettingsFromSheet().then(()=> updateRegButton());
 
 // ---------- 遠端註冊（學生端） ----------
 const remoteRegVideo = document.getElementById('remoteRegVideo');
