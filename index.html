@@ -8,6 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
 <style>
   :root{
     --bg1:#0c1024;
@@ -187,6 +188,20 @@
     color:var(--chalk);
   }
   .hint{color:var(--text-dim);font-size:0.8rem;line-height:1.6;}
+
+  .select{
+    background:rgba(255,255,255,0.08);color:var(--text);border:1px solid var(--glass-border);
+    border-radius:10px;padding:8px 10px;font-family:inherit;font-size:0.85rem;outline:none;
+    cursor:pointer;
+  }
+  .select:focus{border-color:var(--chalk);}
+  .select option{background:#1a2044;color:var(--text);}
+
+  .session-code{
+    font-family:'JetBrains Mono',monospace;font-size:2.6rem;font-weight:700;
+    color:var(--chalk);letter-spacing:8px;line-height:1;
+  }
+  #qrBox img{display:block;}
 
   footer{
     text-align:center;color:var(--text-dim);font-size:0.78rem;margin-top:30px;
@@ -398,6 +413,26 @@
       <h2>本次簽到名單</h2>
       <ul class="list" id="sessionList"></ul>
     </div>
+
+    <div class="card" id="remoteAttendPanel" style="display:none;">
+      <h2>遠端簽到</h2>
+      <p class="hint">學生用自己的手機／筆電開啟下方網址（可掃 QR Code），選擇姓名後用自己鏡頭刷臉即可完成簽到。簽到成功會即時出現在這裡。</p>
+      <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap;margin:10px 0 6px;">
+        <div>
+          <div class="meta" style="font-size:0.78rem;">本次簽到碼</div>
+          <div class="session-code" id="sessionCodeDisplay">—</div>
+        </div>
+        <div id="qrBox" style="background:#fff;padding:8px;border-radius:10px;flex-shrink:0;"></div>
+      </div>
+      <p class="hint" style="word-break:break-all;">簽到網址：<span id="remoteUrlDisplay"></span></p>
+      <div class="row" style="justify-content:flex-start;margin:10px 0;">
+        <button class="btn btn-ghost" id="btnRegenCode">重新產生簽到碼</button>
+        <button class="btn btn-danger" id="btnStopRemote">結束遠端簽到</button>
+      </div>
+      <div class="status" id="remoteAttendStatus"></div>
+      <h3 style="margin:14px 0 8px;font-size:0.95rem;">已簽到（<span id="remoteCount">0</span> 人）</h3>
+      <ul class="list" id="remoteSignedList"></ul>
+    </div>
   </section>
 
   <!-- 紀錄 -->
@@ -442,6 +477,16 @@
           <input type="checkbox" id="toggleAttend">
           <span class="track"></span>
         </label>
+      </div>
+      <div class="switch-row">
+        <div>
+          <div class="label">簽到模式</div>
+          <div class="sub">教師電腦簽到：學生輪流到教師電腦前刷臉；學生遠端簽到：學生用自己的手機／筆電開啟簽到網址，用自己鏡頭刷臉，適合各自座位簽到</div>
+        </div>
+        <select class="select" id="attendModeSelect">
+          <option value="teacher">教師電腦簽到</option>
+          <option value="remote">學生遠端簽到</option>
+        </select>
       </div>
       <div class="switch-row">
         <div>
@@ -571,6 +616,26 @@
   <footer>程式設計：<a href="https://www.facebook.com/profile.php?id=61590607147918" target="_blank" rel="noopener" style="color:inherit;text-decoration:underline;">3C不正師</a></footer>
 </div>
 
+<div class="wrap" id="remoteView" style="display:none;">
+  <header>
+    <h1>遠端簽到</h1>
+    <p>用自己的裝置，對著鏡頭刷臉完成簽到</p>
+  </header>
+  <div class="card">
+    <div class="status" id="remoteMsg"></div>
+    <div style="font-size:0.92rem;margin:10px 0 6px;">我的姓名</div>
+    <select class="select" id="remoteNameSelect" style="width:100%;font-size:1rem;"></select>
+    <div class="video-stage" style="margin-top:14px;">
+      <video id="remoteVideo" autoplay muted playsinline></video>
+      <div class="scan-frame" id="remoteFrame"><div class="scan-line" id="remoteScanLine"></div></div>
+    </div>
+    <div class="row" style="justify-content:center;margin-top:14px;">
+      <button class="btn btn-primary" id="btnRemoteSignin" style="font-size:1rem;padding:12px 22px;">開啟鏡頭並簽到</button>
+    </div>
+    <div class="status" id="remoteSigninStatus">請選擇姓名後，開啟鏡頭刷臉簽到</div>
+  </div>
+</div>
+
 <div class="toast-backdrop" id="successToast">
   <div class="toast-card">
     <div class="toast-icon" id="toastIcon">✓</div>
@@ -629,6 +694,8 @@ let regEnabled = localStorage.getItem('fa_reg_enabled') !== 'false';
 let attendEnabled = localStorage.getItem('fa_attend_enabled') !== 'false';
 let audioEnabled = localStorage.getItem('fa_audio_enabled') !== 'false';
 let classTime = localStorage.getItem('fa_class_time') || '08:00';
+let attendanceMode = localStorage.getItem('fa_attendance_mode') || 'teacher';
+let sessionCode = localStorage.getItem('fa_session_code') || '';
 let schoolCalendar = JSON.parse(localStorage.getItem('fa_school_calendar') || '[]');
 
 function initSupabase(){
@@ -645,6 +712,18 @@ document.getElementById('toggleReg').checked = regEnabled;
 document.getElementById('toggleAttend').checked = attendEnabled;
 document.getElementById('toggleAudio').checked = audioEnabled;
 document.getElementById('classTime').value = classTime;
+document.getElementById('attendModeSelect').value = attendanceMode;
+
+document.getElementById('attendModeSelect').addEventListener('change', (e)=>{
+  attendanceMode = e.target.value;
+  localStorage.setItem('fa_attendance_mode', attendanceMode);
+  if(attendanceMode === 'remote' && !sessionCode){
+    sessionCode = genSessionCode();
+    localStorage.setItem('fa_session_code', sessionCode);
+  }
+  pushSettingsToSheet();
+  updateRemotePanel();
+});
 
 function isLate(timestampISO){
   const d = new Date(timestampISO);
@@ -937,6 +1016,7 @@ function switchTab(tab){
   if(tab === 'register') syncStudentsFromSheet(document.getElementById('regStatus'));
   if(tab === 'records') syncRecordsFromSheet();
   if(tab === 'manage'){ syncSettingsFromSheet(); syncCalendarFromSheet(); syncPendingStudentsFromSheet(); }
+  updateRemotePanel();
 }
 document.querySelectorAll('nav.tabs button').forEach(btn=>{
   btn.addEventListener('click', ()=>{
@@ -1149,6 +1229,8 @@ async function pushSettingsToSheet(){
     const rows = [
       {key:'reg_enabled', value: String(regEnabled)},
       {key:'attend_enabled', value: String(attendEnabled)},
+      {key:'attendance_mode', value: attendanceMode},
+      {key:'session_code', value: sessionCode},
       {key:'class_time', value: classTime}
     ];
     await supabaseClient.from('settings').upsert(rows);
@@ -1164,13 +1246,249 @@ async function syncSettingsFromSheet(){
     localStorage.setItem('fa_attend_enabled', attendEnabled);
     document.getElementById('toggleReg').checked = regEnabled;
     document.getElementById('toggleAttend').checked = attendEnabled;
+    if(remote.attendance_mode){
+      attendanceMode = remote.attendance_mode;
+      localStorage.setItem('fa_attendance_mode', attendanceMode);
+      document.getElementById('attendModeSelect').value = attendanceMode;
+    }
+    if(remote.session_code){
+      sessionCode = remote.session_code;
+      localStorage.setItem('fa_session_code', sessionCode);
+    }
     if(remote.class_time){
       classTime = remote.class_time;
       localStorage.setItem('fa_class_time', classTime);
       document.getElementById('classTime').value = classTime;
     }
+    updateRemotePanel();
   }
 }
+
+// ---------- 遠端簽到（教師端） ----------
+function genSessionCode(){
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let code = '';
+  for(let i=0;i<4;i++) code += chars[Math.floor(Math.random()*chars.length)];
+  return code;
+}
+function getRemoteUrl(){
+  return location.origin + location.pathname + '?mode=remote&code=' + sessionCode;
+}
+let remotePollTimer = null;
+function updateRemotePanel(){
+  if(remoteStudentMode) return;
+  const panel = document.getElementById('remoteAttendPanel');
+  if(!panel) return;
+  const onAttendTab = currentTab === 'attend';
+  if(attendanceMode === 'remote' && onAttendTab){
+    panel.style.display = 'block';
+    renderRemoteQr();
+    startRemotePolling();
+  } else {
+    panel.style.display = 'none';
+    stopRemotePolling();
+  }
+}
+function renderRemoteQr(){
+  document.getElementById('sessionCodeDisplay').textContent = sessionCode || '—';
+  document.getElementById('remoteUrlDisplay').textContent = getRemoteUrl();
+  const qrBox = document.getElementById('qrBox');
+  if(!sessionCode){ qrBox.innerHTML = ''; return; }
+  if(!qrBox.dataset.url || qrBox.dataset.url !== getRemoteUrl()){
+    qrBox.innerHTML = '';
+    if(window.QRCode){
+      try{ new QRCode(qrBox, {text: getRemoteUrl(), width: 132, height: 132, correctLevel: QRCode.CorrectLevel.M}); }
+      catch(e){ qrBox.innerHTML = ''; }
+    }
+    qrBox.dataset.url = getRemoteUrl();
+  }
+}
+async function startRemotePolling(){
+  stopRemotePolling();
+  await refreshRemoteSignedList();
+  remotePollTimer = setInterval(refreshRemoteSignedList, 3000);
+}
+function stopRemotePolling(){
+  if(remotePollTimer){ clearInterval(remotePollTimer); remotePollTimer = null; }
+}
+async function refreshRemoteSignedList(){
+  const ul = document.getElementById('remoteSignedList');
+  const statusEl = document.getElementById('remoteAttendStatus');
+  if(!ul) return;
+  const today = todayStr();
+  let dayRecords = records.filter(r => r.timestamp.startsWith(today));
+  if(supabaseClient){
+    try{
+      const gte = today + 'T00:00:00Z';
+      const {data, error} = await supabaseClient.from('records')
+        .select('student_id,name,klass,timestamp,status').gte('timestamp', gte).order('timestamp', {ascending:true});
+      if(!error && data){
+        dayRecords = data.map(r => ({
+          studentId: r.student_id||'', name: r.name, klass: r.klass||'',
+          timestamp: r.timestamp, status: r.status||''
+        }));
+      }
+    }catch(e){}
+  }
+  const seen = new Map();
+  dayRecords.forEach(r => seen.set(r.studentId, r));
+  const list = [...seen.values()];
+  document.getElementById('remoteCount').textContent = list.length;
+  ul.innerHTML = '';
+  list.forEach(r=>{
+    const li = document.createElement('li');
+    li.innerHTML = `<span>${r.name}</span><span class="meta">${new Date(r.timestamp).toLocaleTimeString('zh-TW',{hour12:false})} ${statusOf(r)==='late'?'｜遲到':''}</span>`;
+    ul.appendChild(li);
+  });
+  if(statusEl) setStatus(statusEl, list.length ? `已同步 ${list.length} 人簽到紀錄（每 3 秒自動更新）` : '等待學生遠端簽到…', 'ok');
+}
+document.getElementById('btnRegenCode').addEventListener('click', async ()=>{
+  sessionCode = genSessionCode();
+  localStorage.setItem('fa_session_code', sessionCode);
+  document.getElementById('remoteAttendPanel').querySelector('#qrBox').dataset.url = '';
+  await pushSettingsToSheet();
+  renderRemoteQr();
+  setStatus(document.getElementById('remoteAttendStatus'), '已產生新簽到碼，請重新分享給學生', 'ok');
+});
+document.getElementById('btnStopRemote').addEventListener('click', async ()=>{
+  attendanceMode = 'teacher';
+  localStorage.setItem('fa_attendance_mode', attendanceMode);
+  document.getElementById('attendModeSelect').value = attendanceMode;
+  await pushSettingsToSheet();
+  updateRemotePanel();
+  setStatus(document.getElementById('remoteAttendStatus'), '已結束遠端簽到，切回教師電腦簽到模式', 'ok');
+});
+
+// ---------- 遠端簽到（學生端） ----------
+let remoteStudentMode = false;
+const remoteVideo = document.getElementById('remoteVideo');
+const remoteFrame = document.getElementById('remoteFrame');
+const remoteMsg = document.getElementById('remoteMsg');
+const remoteSigninStatus = document.getElementById('remoteSigninStatus');
+let remoteStream = null;
+
+function initRemoteView(){
+  const params = new URLSearchParams(location.search);
+  if(params.get('mode') !== 'remote') return;
+  remoteStudentMode = true;
+  document.querySelector('.wrap').style.display = 'none';
+  document.getElementById('remoteView').style.display = 'block';
+  document.title = '遠端簽到';
+  setupRemoteSignin(params.get('code') || '');
+}
+
+async function setupRemoteSignin(code){
+  setStatus(remoteMsg, '正在連線確認簽到狀態…');
+  await syncSettingsFromSheet();
+  if(!supabaseClient){
+    setStatus(remoteMsg, '系統無法連線雲端資料庫，無法進行遠端簽到', 'err');
+    return;
+  }
+  if(!attendEnabled){
+    setStatus(remoteMsg, '目前非開放簽到時間，請洽老師', 'err');
+    return;
+  }
+  if(attendanceMode !== 'remote'){
+    setStatus(remoteMsg, '目前並非遠端簽到模式，請至教師電腦簽到', 'err');
+    return;
+  }
+  if(!code || sessionCode !== code){
+    setStatus(remoteMsg, '簽到碼已失效或錯誤，請向老師確認最新簽到碼', 'err');
+    return;
+  }
+  setStatus(remoteMsg, '載入學生名單…');
+  await syncStudentsFromSheet();
+  const sel = document.getElementById('remoteNameSelect');
+  sel.innerHTML = '';
+  students.forEach(s=>{
+    const opt = document.createElement('option');
+    opt.value = s.id;
+    opt.textContent = (s.klass ? s.klass+' ' : '') + s.name;
+    sel.appendChild(opt);
+  });
+  if(!students.length){
+    setStatus(remoteMsg, '尚無學生資料，無法簽到，請洽老師', 'err');
+    return;
+  }
+  setStatus(remoteMsg, '請選擇你的姓名，點「開啟鏡頭並簽到」刷臉', 'ok');
+}
+
+document.getElementById('btnRemoteSignin').addEventListener('click', async ()=>{
+  const id = document.getElementById('remoteNameSelect').value;
+  const student = students.find(s => s.id === id);
+  if(!student){
+    setStatus(remoteSigninStatus, '請先選擇姓名', 'err');
+    return;
+  }
+  setStatus(remoteSigninStatus, '載入辨識模型中…');
+  await loadModels();
+  try{
+    remoteStream = await navigator.mediaDevices.getUserMedia({video:true});
+  }catch(e){
+    setStatus(remoteSigninStatus, '無法開啟鏡頭：' + e.message, 'err');
+    return;
+  }
+  remoteVideo.srcObject = remoteStream;
+  try{ await remoteVideo.play(); }catch(e){}
+  remoteFrame.classList.add('scanning');
+  let detection = null;
+  for(let attempt = 0; attempt < 6 && !detection; attempt++){
+    try{
+      detection = await faceapi.detectSingleFace(remoteVideo, new faceapi.TinyFaceDetectorOptions({scoreThreshold:0.3}))
+        .withFaceLandmarks().withFaceDescriptor();
+    }catch(e){}
+    if(!detection && attempt < 5) await new Promise(r => setTimeout(r, 500));
+  }
+  remoteFrame.classList.remove('scanning');
+  if(!detection){
+    if(remoteStream){ remoteStream.getTracks().forEach(t=>t.stop()); remoteStream = null; }
+    setStatus(remoteSigninStatus, '未偵測到人臉，請正對鏡頭、保持光線充足再試', 'err');
+    return;
+  }
+  const dist = faceapi.euclideanDistance(detection.descriptor, new Float32Array(student.descriptor));
+  if(dist > threshold){
+    if(remoteStream){ remoteStream.getTracks().forEach(t=>t.stop()); remoteStream = null; }
+    setStatus(remoteSigninStatus, `人臉比對未通過（距離 ${dist.toFixed(3)} > 門檻 ${threshold}）。請確認姓名正確並正對鏡頭`, 'err');
+    return;
+  }
+  if(remoteStream){ remoteStream.getTracks().forEach(t=>t.stop()); remoteStream = null; }
+  await doRemoteSignin(student);
+});
+
+async function doRemoteSignin(student){
+  const today = todayStr();
+  if(supabaseClient){
+    try{
+      const {data} = await supabaseClient.from('records')
+        .select('id').eq('student_id', student.id).gte('timestamp', today + 'T00:00:00Z');
+      if(data && data.length){
+        setStatus(remoteSigninStatus, `${student.name}，你今天已經簽到過了`, 'ok');
+        setStatus(remoteMsg, '已完成簽到', 'ok');
+        document.getElementById('btnRemoteSignin').disabled = true;
+        return;
+      }
+    }catch(e){}
+  }
+  const now = new Date();
+  const status = isLate(now.toISOString()) ? 'late' : 'ontime';
+  if(supabaseClient){
+    try{
+      await supabaseClient.from('records').insert({
+        student_id: student.id, name: student.name, klass: student.klass || '',
+        timestamp: now.toISOString(), status: status
+      });
+    }catch(e){}
+  }
+  records.push({studentId: student.id, name: student.name, klass: student.klass || '', timestamp: now.toISOString(), status: status});
+  localStorage.setItem('fa_records', JSON.stringify(records));
+  document.getElementById('btnRemoteSignin').disabled = true;
+  playBeep(880, 160, 'sine');
+  setStatus(remoteSigninStatus, status === 'late' ? `${student.name}，遲到簽到成功！` : `${student.name}，簽到成功！`, 'ok');
+  setStatus(remoteMsg, '已簽到，可以關閉頁面', 'ok');
+}
+
+initRemoteView();
+updateRemotePanel();
 
 // ---------- 簽到紀錄雲端同步 ----------
 async function fetchRemoteRecords(){

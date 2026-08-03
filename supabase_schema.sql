@@ -33,7 +33,9 @@ INSERT INTO settings (key, value) VALUES
   ('attend_enabled', 'true'),
   ('audio_enabled', 'true'),
   ('class_time', '08:00'),
-  ('threshold', '0.5');
+  ('threshold', '0.5'),
+  ('attendance_mode', 'teacher'),
+  ('session_code', '');
 
 -- 4. 上課日曆
 CREATE TABLE school_calendar (
