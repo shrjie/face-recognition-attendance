@@ -391,6 +391,14 @@
       <h2>已通過學生（<span id="studentCount">0</span> 人）</h2>
       <ul class="list" id="studentList"></ul>
     </div>
+
+    <div class="card" id="remoteRegPanel" style="display:none;">
+      <h2>遠端註冊</h2>
+      <p class="hint">學生用自己的手機／筆電開啟下方網址（可掃 QR Code），輸入姓名後用自己的鏡頭拍攝 3 張樣本即可完成註冊。送出後會進入「待審查」名單，教師核准後才能用於簽到。</p>
+      <div id="regQrBox" style="background:#fff;padding:8px;border-radius:10px;width:132px;margin:10px 0;"></div>
+      <p class="hint" style="word-break:break-all;">註冊網址：<span id="remoteRegUrlDisplay"></span></p>
+      <div class="status" id="remoteRegPanelStatus"></div>
+    </div>
   </section>
 
   <!-- 簽到 -->
@@ -636,6 +644,30 @@
   </div>
 </div>
 
+<div class="wrap" id="remoteRegView" style="display:none;">
+  <header>
+    <h1>學生註冊</h1>
+    <p>用自己的裝置，對著鏡頭拍攝 3 張樣本完成註冊</p>
+  </header>
+  <div class="card">
+    <div class="status" id="regMsg"></div>
+    <div class="row" style="margin:10px 0;">
+      <input type="text" id="remoteRegName" placeholder="學生姓名">
+      <input type="text" id="remoteRegClass" placeholder="座號 / 班級（選填）">
+    </div>
+    <div class="video-stage" style="margin-top:6px;">
+      <video id="remoteRegVideo" autoplay muted playsinline></video>
+      <div class="scan-frame" id="remoteRegFrame"><div class="scan-line" id="remoteRegScanLine"></div></div>
+    </div>
+    <div class="row" style="justify-content:center;margin-top:14px;">
+      <button class="btn btn-primary" id="btnRemoteRegStart">開啟攝影機</button>
+      <button class="btn btn-mint" id="btnRemoteRegCapture" disabled>拍攝樣本（0/3）</button>
+      <button class="btn btn-mint" id="btnRemoteRegSave" disabled style="font-size:1rem;padding:12px 22px;">✓ 送出註冊</button>
+    </div>
+    <div class="status" id="remoteRegStatus">請輸入姓名，開啟攝影機後拍攝 3 張樣本</div>
+  </div>
+</div>
+
 <div class="toast-backdrop" id="successToast">
   <div class="toast-card">
     <div class="toast-icon" id="toastIcon">✓</div>
@@ -697,6 +729,8 @@ let classTime = localStorage.getItem('fa_class_time') || '08:00';
 let attendanceMode = localStorage.getItem('fa_attendance_mode') || 'teacher';
 let sessionCode = localStorage.getItem('fa_session_code') || '';
 let schoolCalendar = JSON.parse(localStorage.getItem('fa_school_calendar') || '[]');
+let remoteStudentMode = false;
+let remoteRegMode = false;
 
 function initSupabase(){
   if(supabaseUrl && supabaseKey && window.supabase){
@@ -1013,10 +1047,11 @@ function switchTab(tab){
   document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
   document.getElementById('panel-'+tab).classList.add('active');
   if(tab !== 'attend') stopAttendLoop();
-  if(tab === 'register') syncStudentsFromSheet(document.getElementById('regStatus'));
+  if(tab === 'register'){ syncSettingsFromSheet(); syncStudentsFromSheet(document.getElementById('regStatus')); }
   if(tab === 'records') syncRecordsFromSheet();
   if(tab === 'manage'){ syncSettingsFromSheet(); syncCalendarFromSheet(); syncPendingStudentsFromSheet(); }
   updateRemotePanel();
+  updateRegPanel();
 }
 document.querySelectorAll('nav.tabs button').forEach(btn=>{
   btn.addEventListener('click', ()=>{
@@ -1261,6 +1296,7 @@ async function syncSettingsFromSheet(){
       document.getElementById('classTime').value = classTime;
     }
     updateRemotePanel();
+    updateRegPanel();
   }
 }
 
@@ -1359,8 +1395,36 @@ document.getElementById('btnStopRemote').addEventListener('click', async ()=>{
   setStatus(document.getElementById('remoteAttendStatus'), '已結束遠端簽到，切回教師電腦簽到模式', 'ok');
 });
 
+// ---------- 遠端註冊（教師端） ----------
+function getRemoteRegUrl(){
+  return location.origin + location.pathname + '?mode=reg';
+}
+function updateRegPanel(){
+  if(remoteStudentMode || remoteRegMode) return;
+  const panel = document.getElementById('remoteRegPanel');
+  if(!panel) return;
+  if(regEnabled && currentTab === 'register'){
+    panel.style.display = 'block';
+    renderRegQr();
+    setStatus(document.getElementById('remoteRegPanelStatus'), '開放遠端註冊中，學生送出後會進入「待審查」名單', 'ok');
+  } else {
+    panel.style.display = 'none';
+  }
+}
+function renderRegQr(){
+  document.getElementById('remoteRegUrlDisplay').textContent = getRemoteRegUrl();
+  const box = document.getElementById('regQrBox');
+  if(!box.dataset.url || box.dataset.url !== getRemoteRegUrl()){
+    box.innerHTML = '';
+    box.dataset.url = getRemoteRegUrl();
+    if(window.QRCode){
+      try{ new QRCode(box, {text: getRemoteRegUrl(), width: 116, height: 116, correctLevel: QRCode.CorrectLevel.M}); }
+      catch(e){ box.innerHTML = ''; }
+    }
+  }
+}
+
 // ---------- 遠端簽到（學生端） ----------
-let remoteStudentMode = false;
 const remoteVideo = document.getElementById('remoteVideo');
 const remoteFrame = document.getElementById('remoteFrame');
 const remoteMsg = document.getElementById('remoteMsg');
@@ -1489,6 +1553,113 @@ async function doRemoteSignin(student){
 
 initRemoteView();
 updateRemotePanel();
+updateRegPanel();
+
+// ---------- 遠端註冊（學生端） ----------
+const remoteRegVideo = document.getElementById('remoteRegVideo');
+const remoteRegFrame = document.getElementById('remoteRegFrame');
+const remoteRegStatusEl = document.getElementById('remoteRegStatus');
+const regMsgEl = document.getElementById('regMsg');
+let remoteRegStream = null;
+let remoteRegDescriptors = [];
+let remoteRegPhotos = [];
+
+function initRemoteRegView(){
+  const params = new URLSearchParams(location.search);
+  if(params.get('mode') !== 'reg') return;
+  remoteRegMode = true;
+  document.querySelector('.wrap').style.display = 'none';
+  document.getElementById('remoteRegView').style.display = 'block';
+  document.title = '學生註冊';
+  setupRemoteReg();
+}
+
+async function setupRemoteReg(){
+  setStatus(regMsgEl, '正在連線確認註冊狀態…');
+  await syncSettingsFromSheet();
+  if(!supabaseClient){
+    setStatus(regMsgEl, '系統無法連線雲端資料庫，無法進行遠端註冊', 'err');
+    return;
+  }
+  if(!regEnabled){
+    setStatus(regMsgEl, '目前未開放學生註冊，請洽老師', 'err');
+    return;
+  }
+  setStatus(regMsgEl, '請輸入姓名後開啟攝影機，正對鏡頭拍攝 3 張樣本', 'ok');
+}
+
+document.getElementById('btnRemoteRegStart').addEventListener('click', async ()=>{
+  const name = document.getElementById('remoteRegName').value.trim();
+  if(!name){
+    setStatus(remoteRegStatusEl, '請先輸入學生姓名', 'err');
+    return;
+  }
+  setStatus(remoteRegStatusEl, '載入辨識模型中…');
+  await loadModels();
+  try{
+    remoteRegStream = await navigator.mediaDevices.getUserMedia({video:true});
+  }catch(e){
+    setStatus(remoteRegStatusEl, '無法開啟攝影機：' + e.message, 'err');
+    return;
+  }
+  remoteRegVideo.srcObject = remoteRegStream;
+  try{ await remoteRegVideo.play(); }catch(e){}
+  document.getElementById('btnRemoteRegStart').disabled = true;
+  document.getElementById('btnRemoteRegCapture').disabled = false;
+  setStatus(remoteRegStatusEl, '攝影機已開啟，請正對鏡頭，點「拍攝樣本」', 'ok');
+});
+
+document.getElementById('btnRemoteRegCapture').addEventListener('click', async ()=>{
+  const name = document.getElementById('remoteRegName').value.trim();
+  if(!name){
+    setStatus(remoteRegStatusEl, '請先輸入學生姓名', 'err');
+    return;
+  }
+  remoteRegFrame.classList.add('scanning');
+  let detection = null;
+  try{
+    detection = await faceapi.detectSingleFace(remoteRegVideo, new faceapi.TinyFaceDetectorOptions())
+      .withFaceLandmarks().withFaceDescriptor();
+  }catch(e){}
+  remoteRegFrame.classList.remove('scanning');
+  if(!detection){
+    setStatus(remoteRegStatusEl, '未偵測到臉部，請正對鏡頭再試一次', 'err');
+    return;
+  }
+  remoteRegDescriptors.push(Array.from(detection.descriptor));
+  const c = document.createElement('canvas');
+  c.width = remoteRegVideo.videoWidth; c.height = remoteRegVideo.videoHeight;
+  c.getContext('2d').drawImage(remoteRegVideo, 0, 0);
+  remoteRegPhotos.push(c.toDataURL('image/jpeg', 0.5));
+  document.getElementById('btnRemoteRegCapture').textContent = `拍攝樣本（${remoteRegDescriptors.length}/3）`;
+  setStatus(remoteRegStatusEl, `已拍攝 ${remoteRegDescriptors.length} 張，${remoteRegDescriptors.length<3?'請再拍攝不同角度':'可送出註冊'}`, 'ok');
+  if(remoteRegDescriptors.length >= 3){
+    document.getElementById('btnRemoteRegSave').disabled = false;
+  }
+});
+
+document.getElementById('btnRemoteRegSave').addEventListener('click', async ()=>{
+  const name = document.getElementById('remoteRegName').value.trim();
+  const klass = document.getElementById('remoteRegClass').value.trim();
+  if(!name || remoteRegDescriptors.length < 3){
+    setStatus(remoteRegStatusEl, '請先完成姓名輸入與 3 張樣本拍攝', 'err');
+    return;
+  }
+  const avg = remoteRegDescriptors[0].map((_,i)=>
+    remoteRegDescriptors.reduce((s,d)=>s+d[i],0) / remoteRegDescriptors.length
+  );
+  const newStudent = {id: Date.now().toString(36), name, klass, descriptor: avg, photo: remoteRegPhotos[0] || '', created_at: new Date().toISOString()};
+  pendingStudents.push(newStudent);
+  localStorage.setItem('fa_pending_students', JSON.stringify(pendingStudents));
+  await pushPendingStudentToSheet(newStudent);
+  document.getElementById('btnRemoteRegSave').disabled = true;
+  document.getElementById('btnRemoteRegCapture').disabled = true;
+  if(remoteRegStream){ remoteRegStream.getTracks().forEach(t=>t.stop()); remoteRegStream = null; }
+  setStatus(remoteRegStatusEl, `「${name}」已送出註冊，待教師審查通過後即可簽到`, 'ok');
+  setStatus(regMsgEl, '註冊已送出，可以關閉頁面', 'ok');
+});
+
+initRemoteRegView();
 
 // ---------- 簽到紀錄雲端同步 ----------
 async function fetchRemoteRecords(){
@@ -2027,6 +2198,7 @@ document.getElementById('toggleReg').addEventListener('change', (e)=>{
   regEnabled = e.target.checked;
   localStorage.setItem('fa_reg_enabled', regEnabled);
   pushSettingsToSheet();
+  updateRegPanel();
 });
 document.getElementById('toggleAttend').addEventListener('change', (e)=>{
   attendEnabled = e.target.checked;
